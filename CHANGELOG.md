@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [1.0.0] - 2025-10-17
+## [1.0.0] - 2025-10-19
 ### Added
 - Initial fork from [sorosplits](https://github.com/findolor/sorosplits/tree/main)
 - Base functionality from upstream repository
@@ -15,13 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 - Updated repository name and branding to [stellar-distribution-contracts]
 - Modified README.md for fork-specific information
-- Updated Cargo.toml/project metadata for your organization
+- Updated Cargo.toml
 
 ### Fixed
 - Resolved any immediate compatibility issues with current Stellar version 23
 
 ### Security
-- Updated dependencies to latest secure versions
+- N.A.
 
 ---
 
