@@ -18,4 +18,4 @@ jobs:
       release_name: ${{ github.ref_name }}
       release_description: 'Splitter contract release with SEP-55 build verification'
       package: 'soro-splitter'
-      relative_path: 'contracts'
+      relative_path: 'contracts/splitter'
