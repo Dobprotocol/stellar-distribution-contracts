@@ -1,0 +1,21 @@
+name: Build and Release Contract
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+  attestations: write
+
+jobs:
+  release:
+    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
+    with:
+      release_name: ${{ github.ref_name }}
+      release_description: 'Splitter contract release with SEP-55 build verification'
+      package: 'soro-splitter'
+      relative_path: 'contracts'
