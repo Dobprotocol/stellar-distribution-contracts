@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Installation and usage examples
   - Deployed contract WASM hashes
   - Project structure overview
+- **Tokenized Shares Proposal**: Design document for V2 in `docs/TOKENIZED_SHARES_PROPOSAL.md`
+  - SAC-backed participation tokens
+  - DEX trading capability
+  - Liquidity pool support
+  - Migration path from V1
 
 ### Changed
 - Updated `contracts_report.md` with security cross-references

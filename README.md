@@ -20,6 +20,7 @@ Stellar Distribution Contracts enable automatic, proportional token distribution
 | [Technical Report](contracts_report.md) | Architecture and implementation details |
 | [Security Review](docs/SECURITY_REVIEW.md) | Comprehensive security audit |
 | [Lazy Distribution V2](docs/LAZY_DISTRIBUTION_V2.md) | Future scalability design |
+| [Tokenized Shares Proposal](docs/TOKENIZED_SHARES_PROPOSAL.md) | DEX-tradeable share tokens (V2) |
 | [Changelog](CHANGELOG.md) | Version history |
 
 ## Security
