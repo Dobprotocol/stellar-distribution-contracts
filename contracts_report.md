@@ -74,15 +74,33 @@ Shareholders can withdraw their allocations independently (`contracts/splitter/s
 
 ## Security Features
 
+> **For a comprehensive security audit, see [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md)**
+
 ### Access Control
 - **Admin-only functions**: `transfer_tokens`, `distribute_tokens`, `update_shares`, `lock_contract`
 - **Shareholder authentication**: Required for withdrawal operations
 - **Contract initialization**: Can only be performed once
+- **Commission management**: Only commission recipient can modify rates
+
+### Authorization Matrix
+| Function | Required Authorization |
+|----------|----------------------|
+| `init` | None (one-time only) |
+| `distribute_tokens` | Admin |
+| `withdraw_allocation` | Shareholder |
+| `transfer_shares` | Sender |
+| `buy_shares` | Buyer |
+| `set_commission_*` | Commission Recipient |
 
 ### Immutability Options
 The contract supports two operational modes:
 - **Mutable**: Allows share updates by admin
 - **Immutable**: Permanently locks share distribution (via `lock_contract`)
+
+### Arithmetic Safety
+- Overflow protection using `checked_mul()` for price calculations
+- Delta-based allocation tracking prevents double-counting
+- Share validation ensures total always equals 10,000
 
 ### Atomic Deployment
 The Deployer contract (`contracts/deployer/src/lib.rs:18-43`) ensures atomic initialization:

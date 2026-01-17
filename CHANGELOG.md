@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.2.1] - 2026-01-17
+### Added
+- **Security Review Documentation**: Comprehensive security audit in `docs/SECURITY_REVIEW.md`
+  - Authorization matrix for all contract functions
+  - Input validation coverage
+  - Edge case handling verification
+  - Potential concerns and mitigations
+  - Operational security recommendations
+- **Updated README**: Expanded documentation with:
+  - Security section linking to audit
+  - Complete function reference tables
+  - Installation and usage examples
+  - Deployed contract WASM hashes
+  - Project structure overview
+
+### Changed
+- Updated `contracts_report.md` with security cross-references
+- Improved documentation structure for external reviewers
+
+### Security
+- Completed internal security review - **No critical vulnerabilities found**
+- Verified all authorization patterns
+- Confirmed overflow protection on arithmetic operations
+- Documented commission recipient key security requirements
+
+---
+
 ## [1.2.0] - 2025-12-20
 ### Added
 - **Commission System**: Platform fee collection on pool operations
