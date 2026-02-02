@@ -19,3 +19,6 @@ jobs:
       release_description: 'Splitter contract release with SEP-55 build verification'
       package: 'soro-splitter'
       relative_path: 'contracts/splitter'
+      home_domain: 'dobprotocol.com'
+    secrets:
+      release_token: ${{ secrets.GITHUB_TOKEN }}
