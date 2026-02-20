@@ -1,0 +1,17 @@
+[package]
+name = "soro-splitter-v2"
+version = "2.0.0"
+edition = "2021"
+description = "Tokenized distribution splitter with lazy distribution and DEX-tradeable participation tokens"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "23.0.3"
+
+[dev-dependencies]
+soroban-sdk = { version = "23.0.3", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

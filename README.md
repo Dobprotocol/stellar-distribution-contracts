@@ -13,14 +13,28 @@ Stellar Distribution Contracts enable automatic, proportional token distribution
 - **Share Marketplace**: Buy and sell shares with built-in escrow
 - **Admin Controls**: Update shares, lock contracts, transfer unused funds
 
+## Contract Versions
+
+| Version | Description | Status |
+|---------|-------------|--------|
+| **V1 (Splitter)** | Accountability-based shares with push distribution | Production |
+| **V2 (Splitter V2)** | Tokenized shares with lazy distribution | Production |
+
+### V2 Features (New)
+
+- **Tokenized Shares**: Participation represented as SAC tokens
+- **DEX Tradeable**: Shares can be traded on Stellar DEXs (StellarX, Lobstr)
+- **O(1) Distribution**: Admin creates distribution rounds, users claim
+- **Wallet Visible**: Shares appear as token balance in Freighter/Lobstr
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [Technical Report](contracts_report.md) | Architecture and implementation details |
-| [Security Review](docs/SECURITY_REVIEW.md) | Comprehensive security audit |
-| [Lazy Distribution V2](docs/LAZY_DISTRIBUTION_V2.md) | Future scalability design |
-| [Tokenized Shares Proposal](docs/TOKENIZED_SHARES_PROPOSAL.md) | DEX-tradeable share tokens (V2) |
+| [Security Review V1](docs/SECURITY_REVIEW.md) | V1 security audit |
+| [Security Review V2](docs/SECURITY_REVIEW_V2.md) | V2 security audit |
+| [Tokenized Shares Proposal](docs/TOKENIZED_SHARES_PROPOSAL.md) | V2 design document |
 | [Changelog](CHANGELOG.md) | Version history |
 
 ## Security
@@ -44,18 +58,18 @@ See [Security Review](docs/SECURITY_REVIEW.md) for:
 
 ## Contract Functions
 
-### Core Functions
+### V1 Core Functions
 
 | Function | Access | Description |
 |----------|--------|-------------|
 | `init` | One-time | Initialize with admin and shareholders |
-| `distribute_tokens` | Admin | Distribute token balance to shareholders |
+| `distribute_tokens` | Admin | Distribute token balance to shareholders (O(n)) |
 | `withdraw_allocation` | Shareholder | Claim allocated tokens |
 | `transfer_tokens` | Admin | Transfer unallocated tokens |
 | `update_shares` | Admin | Update shareholder percentages |
 | `lock_contract` | Admin | Permanently lock share distribution |
 
-### Share Marketplace
+### V1 Share Marketplace
 
 | Function | Access | Description |
 |----------|--------|-------------|
@@ -64,7 +78,29 @@ See [Security Review](docs/SECURITY_REVIEW.md) for:
 | `cancel_listing` | Seller | Cancel share listing |
 | `transfer_shares` | Shareholder | Direct share transfer |
 
-### Query Functions
+### V2 Core Functions (Tokenized)
+
+| Function | Access | Description |
+|----------|--------|-------------|
+| `init` | One-time | Initialize with participation token address |
+| `create_distribution` | Admin | Create distribution round (O(1)) |
+| `claim` | Shareholder | Claim from specific round |
+| `claim_all` | Shareholder | Claim from all unclaimed rounds |
+| `transfer_tokens` | Admin | Transfer unallocated tokens |
+| `lock_contract` | Admin | Permanently lock contract |
+
+### V2 Query Functions
+
+| Function | Description |
+|----------|-------------|
+| `get_share` | Get participation token balance |
+| `get_round` | Get distribution round details |
+| `get_active_rounds` | List all active distribution rounds |
+| `get_claimable` | Get claimable amount for a round |
+| `get_total_claimable` | Get total claimable across all rounds |
+| `get_config` | Get contract configuration |
+
+### Query Functions (V1)
 
 | Function | Description |
 |----------|-------------|
