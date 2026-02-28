@@ -47,9 +47,10 @@ where
 #[derive(Clone, Debug, PartialEq, Copy)]
 #[contracttype]
 pub enum PoolType {
-    Reward = 0,   // Standard reward distribution (default)
-    Payroll = 1,  // Regular payments, may have locked tokens
-    Treasury = 2, // Operational funds management
+    Reward = 0,       // Standard reward distribution (default)
+    Payroll = 1,      // Regular payments, may have locked tokens
+    Treasury = 2,     // Operational funds management
+    Crowdfunding = 3, // Distribution phase of a graduated crowdfunding campaign
 }
 
 impl Default for PoolType {
