@@ -35,4 +35,11 @@ pub enum Error {
     DuplicateShareholder = 23,
     // Commission errors
     InvalidCommissionRate = 24,
+    // Batch distribution errors
+    TooManyShareholders = 25,
+    DistributionInProgress = 26,
+    NoDistributionInProgress = 27,
+    DistributionNotComplete = 28,
+    // Migration errors
+    MigrationNotNeeded = 29,
 }

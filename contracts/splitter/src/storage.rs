@@ -17,6 +17,9 @@ const INSTANCE_LIFETIME_THRESHOLD: u32 = INSTANCE_BUMP_AMOUNT - DAY_IN_LEDGERS;
 const PERSISTENT_BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
 const PERSISTENT_LIFETIME_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - DAY_IN_LEDGERS;
 
+// Max shareholders that can be processed in a single distribute_tokens call
+pub const MAX_DISTRIBUTE_BATCH: u32 = 50;
+
 fn bump_instance(e: &Env) {
     e.storage()
         .instance()
@@ -67,28 +70,155 @@ impl ShareDataKey {
         e.storage().persistent().remove(&key);
     }
 
-    /// Saves the list of shareholders
-    pub fn save_shareholders(e: &Env, shareholders: Vec<Address>) {
-        let key = DataKey::Shareholders;
-        e.storage().persistent().set(&key, &shareholders);
-        bump_persistent(e, &key);
+    // ========== Indexed Shareholder Storage ==========
+    // Each shareholder is stored in its own ledger entry: ShareholderAt(index) -> Address
+    // Total count stored in ShareholderCount
+
+    /// Returns the total number of shareholders
+    pub fn get_shareholder_count(e: &Env) -> u32 {
+        let key = DataKey::ShareholderCount;
+        e.storage().persistent().get(&key).unwrap_or(0)
     }
 
-    /// Returns the list of shareholders
-    pub fn get_shareholders(e: &Env) -> Vec<Address> {
-        let key = DataKey::Shareholders;
-        let res = e.storage().persistent().get::<DataKey, Vec<Address>>(&key);
+    /// Returns the shareholder address at the given index
+    pub fn get_shareholder_at(e: &Env, index: u32) -> Option<Address> {
+        let key = DataKey::ShareholderAt(index);
+        let res = e.storage().persistent().get::<DataKey, Address>(&key);
         match res {
-            Some(shareholders) => {
+            Some(addr) => {
                 bump_persistent(e, &key);
-                shareholders
+                Some(addr)
             }
-            None => Vec::new(&e),
+            None => None,
         }
     }
 
-    /// Removes the list of shareholders
+    /// Saves a shareholder at a specific index
+    fn save_shareholder_at(e: &Env, index: u32, addr: &Address) {
+        let key = DataKey::ShareholderAt(index);
+        e.storage().persistent().set(&key, addr);
+        bump_persistent(e, &key);
+    }
+
+    /// Saves the shareholder count
+    fn save_shareholder_count(e: &Env, count: u32) {
+        let key = DataKey::ShareholderCount;
+        e.storage().persistent().set(&key, &count);
+        bump_persistent(e, &key);
+    }
+
+    /// Removes a shareholder at a specific index
+    fn remove_shareholder_at(e: &Env, index: u32) {
+        let key = DataKey::ShareholderAt(index);
+        e.storage().persistent().remove(&key);
+    }
+
+    /// Adds a new shareholder to the indexed list (appends at end)
+    pub fn add_shareholder(e: &Env, addr: &Address) {
+        let count = Self::get_shareholder_count(e);
+        Self::save_shareholder_at(e, count, addr);
+        Self::save_shareholder_count(e, count + 1);
+    }
+
+    /// Removes a shareholder by address using swap-remove (O(1))
+    /// Swaps the target with the last element and decrements count
+    pub fn remove_shareholder(e: &Env, addr: &Address) {
+        let count = Self::get_shareholder_count(e);
+        if count == 0 {
+            return;
+        }
+
+        // Find the index of the address to remove
+        let mut found_index: Option<u32> = None;
+        for i in 0..count {
+            if let Some(existing) = Self::get_shareholder_at(e, i) {
+                if existing == *addr {
+                    found_index = Some(i);
+                    break;
+                }
+            }
+        }
+
+        if let Some(index) = found_index {
+            let last_index = count - 1;
+            if index != last_index {
+                // Swap with last element
+                if let Some(last_addr) = Self::get_shareholder_at(e, last_index) {
+                    Self::save_shareholder_at(e, index, &last_addr);
+                }
+            }
+            // Remove last entry and decrement count
+            Self::remove_shareholder_at(e, last_index);
+            Self::save_shareholder_count(e, last_index);
+        }
+    }
+
+    /// Checks if a shareholder exists in the indexed list
+    pub fn is_shareholder(e: &Env, addr: &Address) -> bool {
+        let count = Self::get_shareholder_count(e);
+        for i in 0..count {
+            if let Some(existing) = Self::get_shareholder_at(e, i) {
+                if existing == *addr {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Saves shareholders from a Vec using indexed storage (used during init/update)
+    pub fn save_shareholders(e: &Env, shareholders: Vec<Address>) {
+        // Clear any existing indexed entries
+        let old_count = Self::get_shareholder_count(e);
+        for i in 0..old_count {
+            Self::remove_shareholder_at(e, i);
+        }
+
+        // Save each shareholder individually
+        for (i, addr) in shareholders.iter().enumerate() {
+            Self::save_shareholder_at(e, i as u32, &addr);
+        }
+        Self::save_shareholder_count(e, shareholders.len());
+    }
+
+    /// Returns all shareholders as a Vec (for backward compatibility with queries)
+    /// WARNING: This rebuilds the full Vec - use indexed access for large sets
+    pub fn get_shareholders(e: &Env) -> Vec<Address> {
+        let count = Self::get_shareholder_count(e);
+        let mut shareholders: Vec<Address> = Vec::new(e);
+        for i in 0..count {
+            if let Some(addr) = Self::get_shareholder_at(e, i) {
+                shareholders.push_back(addr);
+            }
+        }
+        shareholders
+    }
+
+    /// Removes all indexed shareholder entries
     pub fn remove_shareholders(e: &Env) {
+        let count = Self::get_shareholder_count(e);
+        for i in 0..count {
+            Self::remove_shareholder_at(e, i);
+        }
+        Self::save_shareholder_count(e, 0);
+    }
+
+    // ========== Legacy Vec Migration ==========
+
+    /// Checks if old-format Vec<Address> shareholders data exists
+    pub fn has_legacy_shareholders(e: &Env) -> bool {
+        let key = DataKey::Shareholders;
+        e.storage().persistent().has(&key)
+    }
+
+    /// Reads old-format Vec<Address> shareholders data
+    pub fn get_legacy_shareholders(e: &Env) -> Vec<Address> {
+        let key = DataKey::Shareholders;
+        e.storage().persistent().get::<DataKey, Vec<Address>>(&key).unwrap_or(Vec::new(e))
+    }
+
+    /// Removes old-format shareholders data
+    pub fn remove_legacy_shareholders(e: &Env) {
         let key = DataKey::Shareholders;
         e.storage().persistent().remove(&key);
     }
@@ -281,7 +411,7 @@ impl SaleListingDataKey {
         e.storage().persistent().set(&key, &listing);
         bump_persistent(e, &key);
 
-        // Add to active listings
+        // Add to active listings (indexed)
         Self::add_to_active_listings(e, &seller);
     }
 
@@ -303,48 +433,121 @@ impl SaleListingDataKey {
         let key = DataKey::SaleListing(seller.clone());
         e.storage().persistent().remove(&key);
 
-        // Remove from active listings
+        // Remove from active listings (indexed)
         Self::remove_from_active_listings(e, seller);
     }
 
-    /// Gets all active listings
-    pub fn get_active_listings(e: &Env) -> Vec<Address> {
-        let key = DataKey::ActiveListings;
-        let res = e.storage().persistent().get::<DataKey, Vec<Address>>(&key);
+    // ========== Indexed Active Listings ==========
+
+    /// Returns the total number of active listings
+    pub fn get_active_listing_count(e: &Env) -> u32 {
+        let key = DataKey::ActiveListingCount;
+        e.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Returns the active listing address at the given index
+    pub fn get_active_listing_at(e: &Env, index: u32) -> Option<Address> {
+        let key = DataKey::ActiveListingAt(index);
+        let res = e.storage().persistent().get::<DataKey, Address>(&key);
         match res {
-            Some(listings) => {
+            Some(addr) => {
                 bump_persistent(e, &key);
-                listings
+                Some(addr)
             }
-            None => Vec::new(&e),
+            None => None,
         }
+    }
+
+    fn save_active_listing_at(e: &Env, index: u32, addr: &Address) {
+        let key = DataKey::ActiveListingAt(index);
+        e.storage().persistent().set(&key, addr);
+        bump_persistent(e, &key);
+    }
+
+    fn save_active_listing_count(e: &Env, count: u32) {
+        let key = DataKey::ActiveListingCount;
+        e.storage().persistent().set(&key, &count);
+        bump_persistent(e, &key);
+    }
+
+    fn remove_active_listing_at(e: &Env, index: u32) {
+        let key = DataKey::ActiveListingAt(index);
+        e.storage().persistent().remove(&key);
     }
 
     fn add_to_active_listings(e: &Env, seller: &Address) {
-        let mut listings = Self::get_active_listings(e);
-        if !listings.contains(seller) {
-            listings.push_back(seller.clone());
-            let key = DataKey::ActiveListings;
-            e.storage().persistent().set(&key, &listings);
-            bump_persistent(e, &key);
+        // Check if already in list
+        let count = Self::get_active_listing_count(e);
+        for i in 0..count {
+            if let Some(existing) = Self::get_active_listing_at(e, i) {
+                if existing == *seller {
+                    return; // Already listed
+                }
+            }
         }
+        Self::save_active_listing_at(e, count, seller);
+        Self::save_active_listing_count(e, count + 1);
     }
 
     fn remove_from_active_listings(e: &Env, seller: &Address) {
-        let mut listings = Self::get_active_listings(e);
+        let count = Self::get_active_listing_count(e);
+        if count == 0 {
+            return;
+        }
+
         let mut found_index: Option<u32> = None;
-        for (i, addr) in listings.iter().enumerate() {
-            if addr == *seller {
-                found_index = Some(i as u32);
-                break;
+        for i in 0..count {
+            if let Some(existing) = Self::get_active_listing_at(e, i) {
+                if existing == *seller {
+                    found_index = Some(i);
+                    break;
+                }
             }
         }
+
         if let Some(index) = found_index {
-            listings.remove(index);
-            let key = DataKey::ActiveListings;
-            e.storage().persistent().set(&key, &listings);
-            bump_persistent(e, &key);
+            let last_index = count - 1;
+            if index != last_index {
+                // Swap with last
+                if let Some(last_addr) = Self::get_active_listing_at(e, last_index) {
+                    Self::save_active_listing_at(e, index, &last_addr);
+                }
+            }
+            Self::remove_active_listing_at(e, last_index);
+            Self::save_active_listing_count(e, last_index);
         }
+    }
+
+    /// Returns all active listings as a Vec (backward compatibility)
+    pub fn get_active_listings(e: &Env) -> Vec<Address> {
+        let count = Self::get_active_listing_count(e);
+        let mut listings: Vec<Address> = Vec::new(e);
+        for i in 0..count {
+            if let Some(addr) = Self::get_active_listing_at(e, i) {
+                listings.push_back(addr);
+            }
+        }
+        listings
+    }
+
+    // ========== Legacy Vec Migration ==========
+
+    /// Checks if old-format Vec<Address> active listings data exists
+    pub fn has_legacy_active_listings(e: &Env) -> bool {
+        let key = DataKey::ActiveListings;
+        e.storage().persistent().has(&key)
+    }
+
+    /// Reads old-format Vec<Address> active listings data
+    pub fn get_legacy_active_listings(e: &Env) -> Vec<Address> {
+        let key = DataKey::ActiveListings;
+        e.storage().persistent().get::<DataKey, Vec<Address>>(&key).unwrap_or(Vec::new(e))
+    }
+
+    /// Removes old-format active listings data
+    pub fn remove_legacy_active_listings(e: &Env) {
+        let key = DataKey::ActiveListings;
+        e.storage().persistent().remove(&key);
     }
 }
 
@@ -441,36 +644,78 @@ impl CommissionConfig {
     }
 }
 
+/// State for a pending batch distribution
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct PendingDistribution {
+    pub token: Address,
+    pub amount_for_shareholders: i128,
+    pub total_distributed: i128,
+    pub processed_up_to: u32,
+    pub shareholder_count: u32,
+    pub largest_shareholder: Address,
+    pub largest_share: i128,
+}
+
+impl PendingDistribution {
+    pub fn save(e: &Env, state: &PendingDistribution) {
+        let key = DataKey::PendingDistribution;
+        e.storage().temporary().set(&key, state);
+    }
+
+    pub fn get(e: &Env) -> Option<PendingDistribution> {
+        let key = DataKey::PendingDistribution;
+        e.storage().temporary().get(&key)
+    }
+
+    pub fn remove(e: &Env) {
+        let key = DataKey::PendingDistribution;
+        e.storage().temporary().remove(&key);
+    }
+
+    pub fn exists(e: &Env) -> bool {
+        let key = DataKey::PendingDistribution;
+        e.storage().temporary().has(&key)
+    }
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
     Config,
-    // Storage keys for the shareholder and share data
-    //
-    /// Data key for keeping all of the shareholders in the contract
+    // ---- Legacy (pre-migration) ----
+    /// Old monolithic Vec<Address> for shareholders (DEPRECATED - use ShareholderAt/ShareholderCount)
     Shareholders,
-    /// Data key for keeping the share of a shareholder.
-    /// User addresses are mapped to their shares
-    Share(Address),
-    // Storage keys for the allocations
-    //
-    /// Data key for keeping the total allocation amount for a token.
-    /// Token addresses are mapped to their total allocation amount.
-    TotalAllocation(Address),
-    /// Data key for keeping the allocation amount for a shareholder.
-    /// User addresses with token addresses are mapped to their allocation amount.
-    ///
-    /// (UserAddr, TokenAddr) -> Allocation
-    Allocation(Address, Address),
-    // Storage keys for the share marketplace
-    //
-    /// Data key for keeping the sale listing for a seller.
-    /// Seller addresses are mapped to their sale listing.
-    SaleListing(Address),
-    /// Data key for keeping all active listings in the marketplace.
+    /// Old monolithic Vec<Address> for active listings (DEPRECATED - use ActiveListingAt/ActiveListingCount)
     ActiveListings,
-    // Storage keys for commission
-    //
-    /// Data key for keeping the commission configuration
+
+    // ---- Indexed shareholder storage ----
+    /// Maps index -> shareholder Address (each in its own ledger entry)
+    ShareholderAt(u32),
+    /// Total number of shareholders
+    ShareholderCount,
+
+    // ---- Share data ----
+    /// Maps shareholder Address -> ShareDataKey
+    Share(Address),
+
+    // ---- Allocations ----
+    /// Maps token Address -> total allocation amount
+    TotalAllocation(Address),
+    /// Maps (shareholder Address, token Address) -> allocation amount
+    Allocation(Address, Address),
+
+    // ---- Indexed marketplace listings ----
+    /// Maps index -> seller Address (each in its own ledger entry)
+    ActiveListingAt(u32),
+    /// Total number of active listings
+    ActiveListingCount,
+    /// Maps seller Address -> SaleListingDataKey
+    SaleListing(Address),
+
+    // ---- Commission ----
     Commission,
+
+    // ---- Batch distribution state ----
+    PendingDistribution,
 }

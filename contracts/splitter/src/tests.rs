@@ -13,3 +13,6 @@ mod marketplace_cancel;
 mod marketplace_buy;
 mod marketplace_queries;
 mod marketplace_integration;
+
+// DoS fix tests
+mod batch_distribution;

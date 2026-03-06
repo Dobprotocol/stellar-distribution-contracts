@@ -60,20 +60,7 @@ pub fn execute(env: Env, from: Address, to: Address, amount: i128) -> Result<(),
             if new_sender_share == 0 {
                 // Remove sender from shareholders if they have no shares left
                 ShareDataKey::remove_share(&env, &from);
-
-                // Update shareholders list
-                let mut shareholders = ShareDataKey::get_shareholders(&env);
-                let mut found_index: Option<u32> = None;
-                for (i, addr) in shareholders.iter().enumerate() {
-                    if addr == from {
-                        found_index = Some(i as u32);
-                        break;
-                    }
-                }
-                if let Some(index) = found_index {
-                    shareholders.remove(index);
-                    ShareDataKey::save_shareholders(&env, shareholders);
-                }
+                ShareDataKey::remove_shareholder(&env, &from);
             } else {
                 ShareDataKey::save_share(&env, from.clone(), new_sender_share);
             }
@@ -83,9 +70,7 @@ pub fn execute(env: Env, from: Address, to: Address, amount: i128) -> Result<(),
 
             // Add recipient to shareholders list if new
             if is_new_shareholder {
-                let mut shareholders = ShareDataKey::get_shareholders(&env);
-                shareholders.push_back(to.clone());
-                ShareDataKey::save_shareholders(&env, shareholders);
+                ShareDataKey::add_shareholder(&env, &to);
             }
 
             // Emit transfer event

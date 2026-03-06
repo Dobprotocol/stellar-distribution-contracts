@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contractmeta, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contractmeta, Address, BytesN, Env, Vec};
 
 use crate::{
     errors::Error,
@@ -54,11 +54,41 @@ pub trait SplitterTrait {
     /// Distributes tokens to the shareholders.
     ///
     /// All of the available token balance is distributed on execution.
+    /// Limited to pools with <= 50 shareholders. For larger pools, use
+    /// start_distribution + process_distribution + finalize_distribution.
     ///
     /// ## Arguments
     ///
     /// * `token_address` - The address of the token to distribute
     fn distribute_tokens(env: Env, token_address: Address) -> Result<(), Error>;
+
+    /// **ADMIN ONLY FUNCTION**
+    ///
+    /// Phase 1 of batch distribution: calculates distributable amount,
+    /// deducts commission, stores state for batch processing.
+    /// Returns the number of shareholders to process.
+    ///
+    /// ## Arguments
+    ///
+    /// * `token_address` - The address of the token to distribute
+    fn start_distribution(env: Env, token_address: Address) -> Result<u32, Error>;
+
+    /// **ADMIN ONLY FUNCTION**
+    ///
+    /// Phase 2 of batch distribution: processes the next batch of shareholders.
+    /// Call repeatedly until it returns false (no more to process).
+    /// Returns true if there are more shareholders to process.
+    ///
+    /// ## Arguments
+    ///
+    /// * `batch_size` - Number of shareholders to process in this batch
+    fn process_distribution(env: Env, batch_size: u32) -> Result<bool, Error>;
+
+    /// **ADMIN ONLY FUNCTION**
+    ///
+    /// Phase 3 of batch distribution: handles dust distribution and emits
+    /// summary event. Call after all process_distribution batches complete.
+    fn finalize_distribution(env: Env) -> Result<(), Error>;
 
     /// **ADMIN ONLY FUNCTION**
     ///
@@ -111,6 +141,24 @@ pub trait SplitterTrait {
         amount: i128,
     ) -> Result<(), Error>;
 
+    /// **ADMIN ONLY FUNCTION**
+    ///
+    /// Migrates legacy Vec<Address> storage to indexed storage.
+    /// Must be called once after upgrading existing contracts from the old WASM.
+    /// Converts monolithic shareholders Vec and active listings Vec
+    /// into individual indexed ledger entries to prevent DoS attacks.
+    fn migrate(env: Env) -> Result<(), Error>;
+
+    /// **ADMIN ONLY FUNCTION**
+    ///
+    /// Upgrades the contract WASM to a new version.
+    /// The new WASM must already be uploaded to the network.
+    ///
+    /// ## Arguments
+    ///
+    /// * `new_wasm_hash` - The hash of the new WASM binary
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
+
     // ========== Query Functions ==========
 
     /// Gets the share of a shareholder.
@@ -130,6 +178,9 @@ pub trait SplitterTrait {
     ///
     /// * `Vec<ShareDataKey>` - The list of shareholders with their shares
     fn list_shares(env: Env) -> Result<Vec<ShareDataKey>, Error>;
+
+    /// Returns the total number of shareholders.
+    fn get_shareholder_count(env: Env) -> Result<u32, Error>;
 
     /// Gets the contract configuration.
     ///
@@ -291,6 +342,18 @@ impl SplitterTrait for Splitter {
         execute::distribute_tokens(env, token_address)
     }
 
+    fn start_distribution(env: Env, token_address: Address) -> Result<u32, Error> {
+        execute::start_distribution(env, token_address)
+    }
+
+    fn process_distribution(env: Env, batch_size: u32) -> Result<bool, Error> {
+        execute::process_distribution(env, batch_size)
+    }
+
+    fn finalize_distribution(env: Env) -> Result<(), Error> {
+        execute::finalize_distribution(env)
+    }
+
     fn update_shares(env: Env, shares: Vec<ShareDataKey>) -> Result<(), Error> {
         execute::update_shares(env, shares)
     }
@@ -317,6 +380,16 @@ impl SplitterTrait for Splitter {
         execute::transfer_shares(env, from, to, amount)
     }
 
+    fn migrate(env: Env) -> Result<(), Error> {
+        execute::migrate(env)
+    }
+
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        ConfigDataKey::require_admin(&env)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
+    }
+
     // ========== Query Functions ==========
 
     fn get_share(env: Env, shareholder: Address) -> Result<Option<i128>, Error> {
@@ -325,6 +398,10 @@ impl SplitterTrait for Splitter {
 
     fn list_shares(env: Env) -> Result<Vec<ShareDataKey>, Error> {
         query::list_shares(env)
+    }
+
+    fn get_shareholder_count(env: Env) -> Result<u32, Error> {
+        query::get_shareholder_count(env)
     }
 
     fn get_config(env: Env) -> Result<ConfigDataKey, Error> {

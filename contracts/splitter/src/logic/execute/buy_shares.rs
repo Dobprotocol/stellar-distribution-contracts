@@ -69,20 +69,7 @@ pub fn execute(
     } else {
         // Seller has no more shares, remove them
         ShareDataKey::remove_share(&env, &seller);
-
-        // Remove from shareholders list
-        let mut shareholders = ShareDataKey::get_shareholders(&env);
-        let mut found_index: Option<u32> = None;
-        for (i, addr) in shareholders.iter().enumerate() {
-            if addr == seller {
-                found_index = Some(i as u32);
-                break;
-            }
-        }
-        if let Some(index) = found_index {
-            shareholders.remove(index);
-            ShareDataKey::save_shareholders(&env, shareholders);
-        }
+        ShareDataKey::remove_shareholder(&env, &seller);
     }
 
     // Increase buyer's shares (or create new shareholder)
@@ -90,10 +77,8 @@ pub fn execute(
     let new_buyer_shares = match buyer_share_data {
         Some(data) => data.share + shares_amount,
         None => {
-            // Add buyer to shareholders list
-            let mut shareholders = ShareDataKey::get_shareholders(&env);
-            shareholders.push_back(buyer.clone());
-            ShareDataKey::save_shareholders(&env, shareholders);
+            // Add buyer to shareholders list (indexed)
+            ShareDataKey::add_shareholder(&env, &buyer);
             shares_amount
         }
     };

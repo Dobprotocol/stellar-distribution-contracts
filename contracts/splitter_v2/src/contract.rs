@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contractmeta, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contractmeta, Address, BytesN, Env, Vec};
 
 use crate::{
     errors::Error,
@@ -256,6 +256,15 @@ pub trait SplitterV2Trait {
 
     /// Get commission configuration
     fn get_commission_config(env: Env) -> Result<CommissionConfig, Error>;
+
+    /// **ADMIN ONLY FUNCTION**
+    ///
+    /// Upgrades the contract WASM to a new version.
+    ///
+    /// ## Arguments
+    ///
+    /// * `new_wasm_hash` - The hash of the new WASM binary
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
 }
 
 #[contract]
@@ -440,5 +449,11 @@ impl SplitterV2Trait for SplitterV2 {
 
     fn get_commission_config(env: Env) -> Result<CommissionConfig, Error> {
         Ok(CommissionConfig::get(&env))
+    }
+
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        ConfigDataKey::require_admin(&env)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 }
