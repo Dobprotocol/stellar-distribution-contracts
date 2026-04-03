@@ -3,7 +3,7 @@ use soroban_sdk::{contracttype, Address, Env, IntoVal, String, Val, Vec};
 use crate::errors::Error;
 
 // Default commission address - only this address can change the commission recipient
-const DEFAULT_COMMISSION_ADDRESS: &str = "GCYBJHXG4JRODEFRVXHFWDHRQQSEYYBM2P455ME3OGETCURTQJLZVX72";
+const DEFAULT_COMMISSION_ADDRESS: &str = "GC6XAWU7UNZ2LR6VYX7V2GDC24PZBYMVCBMJKGAFIXQZRNQPMVNOMOHV";
 // Buy commission rate: 150 basis points = 1.5% (on share purchases)
 const BUY_COMMISSION_BPS: i128 = 150;
 // Distribution commission rate: 50 basis points = 0.5% (on token distributions)
@@ -244,6 +244,15 @@ impl ConfigDataKey {
         bump_instance(e);
         let key = DataKey::Config;
         e.storage().instance().get(&key)
+    }
+
+    /// Updates the admin address
+    pub fn set_admin(e: &Env, new_admin: Address) {
+        bump_instance(e);
+        let key = DataKey::Config;
+        let mut config: ConfigDataKey = e.storage().instance().get(&key).unwrap();
+        config.admin = new_admin;
+        e.storage().instance().set(&key, &config);
     }
 
     /// Locks the contract for further changes
