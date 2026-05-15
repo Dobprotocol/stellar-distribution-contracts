@@ -27,4 +27,6 @@ pub enum Error {
     InvalidDeadline = 15,
     // Arithmetic
     Overflow = 16,
+    // Payout mode
+    InvalidPayoutMode = 17,
 }

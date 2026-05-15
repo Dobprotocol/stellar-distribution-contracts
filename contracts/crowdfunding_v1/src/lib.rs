@@ -4,6 +4,9 @@ mod errors;
 mod logic;
 mod storage;
 
+#[cfg(test)]
+mod tests;
+
 use soroban_sdk::{contract, contractimpl, contractmeta, Address, BytesN, Env};
 
 use errors::Error;
@@ -30,6 +33,8 @@ impl Crowdfunding {
     /// - `hard_cap_shares`: maximum shares available [soft_cap, 10 000].
     ///   Pass 10 000 for no effective hard cap.
     /// - `deadline`: unix timestamp after which finalize() can be called.
+    /// - `payout_mode`: 0 = Escrow (funds → splitter on activate, default),
+    ///                  1 = DirectToOwner (funds → admin on activate, resell mode).
     pub fn init(
         env: Env,
         admin: Address,
@@ -38,6 +43,7 @@ impl Crowdfunding {
         soft_cap_shares: i128,
         hard_cap_shares: i128,
         deadline: u64,
+        payout_mode: u32,
     ) -> Result<(), Error> {
         logic::init::execute(
             env,
@@ -47,6 +53,7 @@ impl Crowdfunding {
             soft_cap_shares,
             hard_cap_shares,
             deadline,
+            payout_mode,
         )
     }
 
