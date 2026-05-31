@@ -23,7 +23,7 @@ use soroban_sdk::{symbol_short, token, Address, BytesN, Env};
 
 use crate::{
     errors::Error,
-    storage::{AllocationDataKey, CommissionConfig, ConfigDataKey, DistributionConfig, DistributionRound, TOTAL_SHARES},
+    storage::{get_require_snapshot, AllocationDataKey, CommissionConfig, ConfigDataKey, DistributionConfig, DistributionRound, TOTAL_SHARES},
 };
 
 /// Zero root = legacy round (claims use live balance). Non-zero = Merkle snapshot round.
@@ -39,6 +39,13 @@ pub fn execute(env: Env, token_address: Address) -> Result<u64, Error> {
 
     // 2. Require admin authorization
     ConfigDataKey::require_admin(&env)?;
+
+    // 2b. If the pool requires snapshots, the legacy live-balance path is disabled
+    // (it is drainable via claim -> transfer shares -> claim again). Use
+    // create_distribution_snapshot instead.
+    if get_require_snapshot(&env) {
+        return Err(Error::NotSnapshotRound);
+    }
 
     // 3. Check time-gating (minimum interval since last distribution)
     DistributionConfig::can_distribute(&env)?;

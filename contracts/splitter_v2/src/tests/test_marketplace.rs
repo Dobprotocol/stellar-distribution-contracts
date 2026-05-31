@@ -63,6 +63,27 @@ fn test_cannot_buy_own_shares() {
 }
 
 #[test]
+fn test_require_snapshot_blocks_legacy_distribution() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (splitter, splitter_address, _pt, _admin, _shares) = setup_initialized_splitter(&env);
+
+    let reward_owner = Address::generate(&env);
+    let (_r, reward_admin, reward_token) = create_reward_token(&env, &reward_owner);
+    setup_test_commission_recipient(&env, &splitter, &[&reward_admin]);
+    reward_admin.mint(&splitter_address, &10_000);
+
+    // Enable the production guard: legacy live-balance distribution is rejected,
+    // but the Merkle-snapshot path still works (first distribution, full funds).
+    splitter.set_require_snapshot(&true);
+    assert_eq!(splitter.get_require_snapshot(), true);
+    assert!(splitter.try_create_distribution(&reward_token).is_err());
+
+    let root = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+    assert!(splitter.try_create_distribution_snapshot(&reward_token, &root).is_ok());
+}
+
+#[test]
 #[should_panic]
 fn test_double_list_rejected() {
     let env = Env::default();

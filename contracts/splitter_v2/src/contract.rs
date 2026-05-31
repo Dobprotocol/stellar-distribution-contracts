@@ -185,6 +185,14 @@ pub trait SplitterV2Trait {
     /// Permanently locks the contract from admin modifications.
     fn lock_contract(env: Env) -> Result<(), Error>;
 
+    /// **ADMIN ONLY** Require Merkle-snapshot distributions. When enabled, the legacy
+    /// live-balance path (create_distribution / scheduled triggers / claim on zero-root
+    /// rounds) is rejected, closing the re-claim-via-transfer drain. Set on production pools.
+    fn set_require_snapshot(env: Env, value: bool) -> Result<(), Error>;
+
+    /// Whether this pool requires Merkle-snapshot distributions.
+    fn get_require_snapshot(env: Env) -> bool;
+
     // ========== Share Management ==========
 
     /// Transfer participation tokens to another address
@@ -418,6 +426,19 @@ impl SplitterV2Trait for SplitterV2 {
 
     fn lock_contract(env: Env) -> Result<(), Error> {
         execute::lock_contract(env)
+    }
+
+    fn set_require_snapshot(env: Env, value: bool) -> Result<(), Error> {
+        if !crate::storage::ConfigDataKey::exists(&env) {
+            return Err(Error::NotInitialized);
+        }
+        crate::storage::ConfigDataKey::require_admin(&env)?;
+        crate::storage::set_require_snapshot(&env, value);
+        Ok(())
+    }
+
+    fn get_require_snapshot(env: Env) -> bool {
+        crate::storage::get_require_snapshot(&env)
     }
 
     // ========== Share Management ==========

@@ -28,7 +28,7 @@ use soroban_sdk::{symbol_short, token, Address, BytesN, Env, Vec};
 use crate::{
     errors::Error,
     logic::merkle,
-    storage::{AllocationDataKey, ClaimRecord, ConfigDataKey, DistributionRound},
+    storage::{get_require_snapshot, AllocationDataKey, ClaimRecord, ConfigDataKey, DistributionRound},
     token as participation_token,
 };
 
@@ -47,6 +47,13 @@ pub fn execute(env: Env, shareholder: Address, round_id: u64) -> Result<i128, Er
     // 4. Check round is finalized
     if !round.is_finalized {
         return Err(Error::RoundNotFinalized);
+    }
+
+    // 4b. If the pool requires snapshots, the legacy live-balance claim is disabled for
+    // zero-root rounds (drainable via transfer). Such rounds must use claim_with_proof.
+    let zero = BytesN::from_array(&env, &[0u8; 32]);
+    if get_require_snapshot(&env) && round.snapshot_root == zero {
+        return Err(Error::NotSnapshotRound);
     }
 
     let current_time = env.ledger().timestamp();

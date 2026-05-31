@@ -93,6 +93,13 @@ pub fn trigger_scheduled_distribution(env: Env, token_address: Address) -> Resul
         return Err(Error::NotInitialized);
     }
 
+    // Scheduled distributions use the legacy live-balance path (no off-chain snapshot
+    // is possible from an on-chain trigger), so they are disabled when the pool
+    // requires snapshots.
+    if crate::storage::get_require_snapshot(&env) {
+        return Err(Error::NotSnapshotRound);
+    }
+
     // Check if scheduled distribution is due (throws error if not)
     let _scheduled_time = ScheduleConfig::can_trigger_scheduled(&env)?;
 

@@ -856,4 +856,20 @@ pub enum DataKey {
     // Marketplace
     SaleListing(Address),  // Seller address -> SaleListingDataKey
     ActiveListings,        // Vec<Address> of sellers with active listings
+
+    // When true, the unsafe legacy live-balance distribution path is disabled
+    // (create_distribution / scheduled triggers / claim on zero-root rounds), forcing
+    // the Merkle-snapshot path. Set on production pools to close the re-claim drain.
+    RequireSnapshot,
+}
+
+/// Production guard: when set, only Merkle-snapshot distributions are allowed.
+pub fn set_require_snapshot(e: &Env, value: bool) {
+    bump_instance(e);
+    e.storage().instance().set(&DataKey::RequireSnapshot, &value);
+}
+
+pub fn get_require_snapshot(e: &Env) -> bool {
+    bump_instance(e);
+    e.storage().instance().get(&DataKey::RequireSnapshot).unwrap_or(false)
 }
