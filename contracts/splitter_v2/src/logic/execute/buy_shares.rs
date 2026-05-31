@@ -42,7 +42,17 @@ pub fn execute(env: Env, buyer: Address, seller: Address, shares_amount: i128) -
         CommissionConfig::calculate_commission(total_price, commission_config.buy_rate_bps);
     let seller_receives = total_price - commission;
 
-    // Payment: buyer -> seller, buyer -> commission recipient
+    // EFFECTS BEFORE INTERACTIONS: update/close the listing first, so a reentrant
+    // call through the seller-chosen payment token's transfer hook sees the reduced
+    // (or removed) listing and cannot over-deliver escrowed shares.
+    let remaining = listing.shares_for_sale - shares_amount;
+    if remaining > 0 {
+        SaleListingDataKey::update_shares_for_sale(&env, &seller, remaining);
+    } else {
+        SaleListingDataKey::remove_listing(&env, &seller);
+    }
+
+    // INTERACTIONS — payment: buyer -> seller, buyer -> commission recipient
     let pay_client = get_token_client(&env, &listing.payment_token);
     if seller_receives > 0 {
         pay_client.transfer(&buyer, &seller, &seller_receives);
@@ -56,14 +66,6 @@ pub fn execute(env: Env, buyer: Address, seller: Address, shares_amount: i128) -
         ConfigDataKey::get_participation_token(&env).ok_or(Error::NotInitialized)?;
     let share_client = soroban_sdk::token::Client::new(&env, &participation_token);
     share_client.transfer(&env.current_contract_address(), &buyer, &shares_amount);
-
-    // Update or close the listing
-    let remaining = listing.shares_for_sale - shares_amount;
-    if remaining > 0 {
-        SaleListingDataKey::update_shares_for_sale(&env, &seller, remaining);
-    } else {
-        SaleListingDataKey::remove_listing(&env, &seller);
-    }
 
     env.events().publish(
         (symbol_short!("sold"), seller, buyer),

@@ -8,17 +8,22 @@
 //! received shares after the snapshot is not in the tree, so it has no valid
 //! proof and cannot claim — closing the drain.
 //!
+//! Domain separation: leaves are prefixed with 0x00 and internal nodes with 0x01,
+//! so a leaf preimage can never be reinterpreted as an internal-node preimage
+//! (eliminates the second-preimage class). The off-chain builder MUST match this.
+//!
 //! Leaf encoding (MUST be matched byte-for-byte by the off-chain tree builder):
-//!   leaf = sha256( shareholder.to_xdr(env)  ++  balance_as_16_be_bytes )
-//! Internal nodes use sorted-pair hashing:
-//!   node = sha256( min(a,b) ++ max(a,b) )   (a,b are 32-byte child hashes)
+//!   leaf = sha256( 0x00 ++ shareholder.to_xdr(env)  ++  balance_as_16_be_bytes )
+//! Internal nodes use sorted-pair hashing with a domain prefix:
+//!   node = sha256( 0x01 ++ min(a,b) ++ max(a,b) )   (a,b are 32-byte child hashes)
 //! Sorted pairs make proofs position-independent (standard OpenZeppelin style).
 
 use soroban_sdk::{xdr::ToXdr, Address, Bytes, BytesN, Env, Vec};
 
-/// Compute the leaf hash for (shareholder, balance).
+/// Compute the leaf hash for (shareholder, balance), domain-separated with a 0x00 prefix.
 pub fn leaf_hash(env: &Env, shareholder: &Address, balance: i128) -> BytesN<32> {
-    let mut buf: Bytes = shareholder.clone().to_xdr(env);
+    let mut buf: Bytes = Bytes::from_array(env, &[0u8]); // leaf domain tag
+    buf.append(&shareholder.clone().to_xdr(env));
     let be = balance.to_be_bytes();
     buf.append(&Bytes::from_array(env, &be));
     env.crypto().sha256(&buf).to_bytes()
@@ -43,7 +48,8 @@ pub fn hash_pair(env: &Env, a: &BytesN<32>, b: &BytesN<32>) -> BytesN<32> {
         le
     };
     let (lo, hi) = if a_le { (aa, bb) } else { (bb, aa) };
-    let mut buf = Bytes::from_array(env, &lo);
+    let mut buf = Bytes::from_array(env, &[1u8]); // internal-node domain tag
+    buf.append(&Bytes::from_array(env, &lo));
     buf.append(&Bytes::from_array(env, &hi));
     env.crypto().sha256(&buf).to_bytes()
 }
