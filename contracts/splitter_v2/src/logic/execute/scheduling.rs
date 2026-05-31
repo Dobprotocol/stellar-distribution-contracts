@@ -100,7 +100,8 @@ pub fn trigger_scheduled_distribution(env: Env, token_address: Address) -> Resul
     DistributionConfig::can_distribute(&env)?;
 
     // Execute the distribution using internal logic (no admin auth required for scheduled)
-    let round_id = execute_internal(env.clone(), token_address.clone(), false)?;
+    let zero_root = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    let round_id = execute_internal(env.clone(), token_address.clone(), false, zero_root)?;
 
     // Increment completed distributions
     ScheduleConfig::increment_completed(&env)?;

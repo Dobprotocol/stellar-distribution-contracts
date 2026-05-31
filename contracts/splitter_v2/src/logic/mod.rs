@@ -1,4 +1,5 @@
 pub mod execute;
+pub mod merkle;
 pub mod helpers;
 pub mod query;
 

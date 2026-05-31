@@ -23,10 +23,11 @@
 //! ## Returns:
 //! * `i128` - The amount claimed
 
-use soroban_sdk::{symbol_short, token, Address, Env};
+use soroban_sdk::{symbol_short, token, Address, BytesN, Env, Vec};
 
 use crate::{
     errors::Error,
+    logic::merkle,
     storage::{AllocationDataKey, ClaimRecord, ConfigDataKey, DistributionRound},
     token as participation_token,
 };
@@ -113,6 +114,93 @@ pub fn execute(env: Env, shareholder: Address, round_id: u64) -> Result<i128, Er
     ClaimRecord::save(&env, &claim_record);
 
     // 14. Emit claim event
+    env.events().publish(
+        (symbol_short!("claimed"), shareholder),
+        (round_id, round.token, claim_amount),
+    );
+
+    Ok(claim_amount)
+}
+
+/// Claim from a Merkle-snapshot round by presenting the snapshotted `balance`
+/// and a Merkle `proof`. The balance is the holder's participation-token balance
+/// at the moment the round was created (captured off-chain in the tree), so
+/// shares transferred AFTER the round cannot be used to re-claim it: a fresh
+/// address is not a leaf and has no valid proof. Scales to 100k+ holders (O(1)).
+pub fn execute_with_proof(
+    env: Env,
+    shareholder: Address,
+    round_id: u64,
+    balance: i128,
+    proof: Vec<BytesN<32>>,
+) -> Result<i128, Error> {
+    if !ConfigDataKey::exists(&env) {
+        return Err(Error::NotInitialized);
+    }
+    shareholder.require_auth();
+
+    let round = DistributionRound::get(&env, round_id).ok_or(Error::RoundNotFound)?;
+    if !round.is_finalized {
+        return Err(Error::RoundNotFinalized);
+    }
+    let current_time = env.ledger().timestamp();
+    if current_time < round.claimable_from {
+        return Err(Error::ClaimsNotOpenYet);
+    }
+    if current_time > round.expires_at {
+        return Err(Error::RoundExpired);
+    }
+    if ClaimRecord::has_claimed(&env, &shareholder, round_id) {
+        return Err(Error::AlreadyClaimed);
+    }
+
+    // Must be a snapshot round (non-zero root)
+    let zero = BytesN::from_array(&env, &[0u8; 32]);
+    if round.snapshot_root == zero {
+        return Err(Error::NotSnapshotRound);
+    }
+
+    // Verify the (shareholder, balance) leaf against the round's Merkle root
+    let leaf = merkle::leaf_hash(&env, &shareholder, balance);
+    if !merkle::verify(&env, &round.snapshot_root, &leaf, &proof) {
+        return Err(Error::InvalidProof);
+    }
+    if balance <= 0 {
+        return Err(Error::NothingToClaim);
+    }
+
+    // pro-rata using the SNAPSHOTTED balance (not the live balance)
+    let claim_amount = round
+        .total_amount
+        .checked_mul(balance)
+        .ok_or(Error::Overflow)?
+        / round.total_supply_snapshot;
+    if claim_amount <= 0 {
+        return Err(Error::NothingToClaim);
+    }
+
+    let token_client = token::Client::new(&env, &round.token);
+    token_client.transfer(&env.current_contract_address(), &shareholder, &claim_amount);
+
+    let total_allocated =
+        AllocationDataKey::get_total_allocation(&env, &round.token).unwrap_or(0);
+    let new_total = total_allocated - claim_amount;
+    if new_total <= 0 {
+        AllocationDataKey::remove_total_allocation(&env, &round.token);
+    } else {
+        AllocationDataKey::save_total_allocation(&env, &round.token, new_total);
+    }
+
+    DistributionRound::update_total_claimed(&env, round_id, claim_amount)?;
+
+    let claim_record = ClaimRecord {
+        round_id,
+        shareholder: shareholder.clone(),
+        amount: claim_amount,
+        claimed_at: current_time,
+    };
+    ClaimRecord::save(&env, &claim_record);
+
     env.events().publish(
         (symbol_short!("claimed"), shareholder),
         (round_id, round.token, claim_amount),
