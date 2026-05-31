@@ -72,4 +72,6 @@ pub enum Error {
     NoActiveListing = 41,
     InsufficientSharesInListing = 42,
     CannotBuyOwnShares = 43,
+    InvalidProof = 44,             // Merkle proof did not verify against the round root
+    NotSnapshotRound = 45,         // Round was not created with a Merkle snapshot
 }

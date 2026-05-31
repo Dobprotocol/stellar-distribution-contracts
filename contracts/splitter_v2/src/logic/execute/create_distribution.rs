@@ -19,12 +19,17 @@
 //! ## Returns:
 //! * `u64` - The distribution round ID
 
-use soroban_sdk::{symbol_short, token, Address, Env};
+use soroban_sdk::{symbol_short, token, Address, BytesN, Env};
 
 use crate::{
     errors::Error,
     storage::{AllocationDataKey, CommissionConfig, ConfigDataKey, DistributionConfig, DistributionRound, TOTAL_SHARES},
 };
+
+/// Zero root = legacy round (claims use live balance). Non-zero = Merkle snapshot round.
+fn zero_root(env: &Env) -> BytesN<32> {
+    BytesN::from_array(env, &[0u8; 32])
+}
 
 pub fn execute(env: Env, token_address: Address) -> Result<u64, Error> {
     // 1. Validate initialized
@@ -38,12 +43,26 @@ pub fn execute(env: Env, token_address: Address) -> Result<u64, Error> {
     // 3. Check time-gating (minimum interval since last distribution)
     DistributionConfig::can_distribute(&env)?;
 
-    // Proceed with internal distribution logic
-    execute_internal(env, token_address, true)
+    // Proceed with internal distribution logic (legacy live-balance round)
+    let root = zero_root(&env);
+    execute_internal(env, token_address, true, root)
+}
+
+/// Create a distribution round backed by a Merkle SNAPSHOT of (holder, balance)
+/// taken off-chain at this ledger. Claims must present a proof; a holder that
+/// received shares after the snapshot is not in the tree and cannot claim.
+/// O(1) on-chain — scales to 100k+ holders.
+pub fn execute_snapshot(env: Env, token_address: Address, merkle_root: BytesN<32>) -> Result<u64, Error> {
+    if !ConfigDataKey::exists(&env) {
+        return Err(Error::NotInitialized);
+    }
+    ConfigDataKey::require_admin(&env)?;
+    DistributionConfig::can_distribute(&env)?;
+    execute_internal(env, token_address, true, merkle_root)
 }
 
 /// Internal distribution logic - shared between admin and scheduled distributions
-pub fn execute_internal(env: Env, token_address: Address, is_admin_call: bool) -> Result<u64, Error> {
+pub fn execute_internal(env: Env, token_address: Address, is_admin_call: bool, snapshot_root: BytesN<32>) -> Result<u64, Error> {
     // Get distribution config for claim delay and expiry settings
     let dist_config = DistributionConfig::get(&env);
     let current_time = env.ledger().timestamp();
@@ -102,6 +121,7 @@ pub fn execute_internal(env: Env, token_address: Address, is_admin_call: bool) -
         expires_at,
         is_finalized: true, // Immediately finalized for lazy distribution
         total_claimed: 0,
+        snapshot_root,
     };
 
     DistributionRound::save(&env, &round);

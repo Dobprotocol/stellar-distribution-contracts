@@ -111,6 +111,14 @@ pub trait SplitterV2Trait {
     /// * `u64` - The distribution round ID
     fn create_distribution(env: Env, token_address: Address) -> Result<u64, Error>;
 
+    /// Create a distribution round backed by a Merkle SNAPSHOT of (holder,balance)
+    /// taken off-chain. Claims require a proof (see `claim_with_proof`). Scales to
+    /// 100k+ holders and prevents re-claim-via-transfer. ADMIN ONLY.
+    fn create_distribution_snapshot(env: Env, token_address: Address, merkle_root: BytesN<32>) -> Result<u64, Error>;
+
+    /// Claim from a Merkle-snapshot round by presenting the snapshotted balance + proof.
+    fn claim_with_proof(env: Env, shareholder: Address, round_id: u64, balance: i128, proof: Vec<BytesN<32>>) -> Result<i128, Error>;
+
     /// Claim rewards from a specific distribution round
     ///
     /// Calculates the user's share based on their participation token balance
@@ -163,6 +171,14 @@ pub trait SplitterV2Trait {
     /// ## Returns
     /// * `i128` - Amount reclaimed
     fn reclaim_expired_round(env: Env, round_id: u64) -> Result<i128, Error>;
+
+    /// **ADMIN ONLY** Transfer admin rights to a new address
+    ///
+    /// Follows Stellar SEP standard pattern (soroban-examples/token).
+    ///
+    /// ## Arguments
+    /// * `new_admin` - The new admin address
+    fn set_admin(env: Env, new_admin: Address) -> Result<(), Error>;
 
     /// **ADMIN ONLY** Lock the contract
     ///
@@ -338,6 +354,14 @@ impl SplitterV2Trait for SplitterV2 {
         execute::create_distribution(env, token_address)
     }
 
+    fn create_distribution_snapshot(env: Env, token_address: Address, merkle_root: BytesN<32>) -> Result<u64, Error> {
+        execute::create_distribution_snapshot(env, token_address, merkle_root)
+    }
+
+    fn claim_with_proof(env: Env, shareholder: Address, round_id: u64, balance: i128, proof: Vec<BytesN<32>>) -> Result<i128, Error> {
+        execute::claim_with_proof(env, shareholder, round_id, balance, proof)
+    }
+
     fn claim(env: Env, shareholder: Address, round_id: u64) -> Result<i128, Error> {
         execute::claim(env, shareholder, round_id)
     }
@@ -359,6 +383,10 @@ impl SplitterV2Trait for SplitterV2 {
 
     fn reclaim_expired_round(env: Env, round_id: u64) -> Result<i128, Error> {
         execute::reclaim_expired_round(env, round_id)
+    }
+
+    fn set_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        execute::set_admin(env, new_admin)
     }
 
     fn lock_contract(env: Env) -> Result<(), Error> {

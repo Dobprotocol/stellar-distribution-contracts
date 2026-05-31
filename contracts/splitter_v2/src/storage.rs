@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, IntoVal, String, Val, Vec};
+use soroban_sdk::{contracttype, Address, BytesN, Env, IntoVal, String, Val, Vec};
 
 use crate::errors::Error;
 
@@ -285,6 +285,15 @@ impl ConfigDataKey {
         e.storage().instance().get(&key)
     }
 
+    /// Updates the admin address
+    pub fn set_admin(e: &Env, new_admin: Address) {
+        bump_instance(e);
+        let key = DataKey::Config;
+        let mut config: ConfigDataKey = e.storage().instance().get(&key).unwrap();
+        config.admin = new_admin;
+        e.storage().instance().set(&key, &config);
+    }
+
     /// Locks the contract for further changes
     pub fn lock_contract(e: &Env) {
         bump_instance(e);
@@ -353,6 +362,7 @@ pub struct DistributionRound {
     pub expires_at: u64,                 // NEW: Timestamp when round expires
     pub is_finalized: bool,              // Whether the round is finalized
     pub total_claimed: i128,             // NEW: Track total claimed from this round
+    pub snapshot_root: BytesN<32>,       // Merkle root of (holder,balance) snapshot; zero = legacy live-balance round
 }
 
 impl DistributionRound {
