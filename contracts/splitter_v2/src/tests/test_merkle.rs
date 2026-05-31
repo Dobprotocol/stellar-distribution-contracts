@@ -5,6 +5,7 @@
 //! received shares after the snapshot is not a leaf and has no valid proof, so
 //! it cannot claim — closing the drain. Scales to 100k+ holders (O(1) on-chain).
 
+extern crate std;
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
 use crate::{
@@ -83,4 +84,25 @@ fn test_merkle_snapshot_claim_and_attack() {
     // double-claim guard
     let res3 = splitter.try_claim_with_proof(&s0, &round_id, &4000, &proof0);
     assert_eq!(res3, Err(Ok(Error::AlreadyClaimed)));
+}
+
+#[test]
+fn test_print_reference_leaf() {
+    use soroban_sdk::String as SorobanString;
+    let env = Env::default();
+    let addr = Address::from_string(&SorobanString::from_str(
+        &env,
+        "GBDM6KRXXJHKVYFJPTPW3WBDKUYVCH7NNEI67DDCP7YX4UHX2GODPHGI",
+    ));
+    let leaf = merkle::leaf_hash(&env, &addr, 4000i128);
+    let xdr = soroban_sdk::xdr::ToXdr::to_xdr(addr.clone(), &env);
+    // print the address XDR bytes and the leaf hash for off-chain matching
+    std::println!("ADDR_XDR_LEN={}", xdr.len());
+    let mut hexs = std::string::String::new();
+    for b in xdr.iter() { hexs.push_str(&std::format!("{:02x}", b)); }
+    std::println!("ADDR_XDR_HEX={}", hexs);
+    let arr = leaf.to_array();
+    let mut lh = std::string::String::new();
+    for b in arr.iter() { lh.push_str(&std::format!("{:02x}", b)); }
+    std::println!("LEAF_HASH={}", lh);
 }
