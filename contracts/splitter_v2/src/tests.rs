@@ -6,6 +6,7 @@ mod test_claim_window;
 mod test_distribution;
 mod test_expiry_reclaim;
 mod test_init;
+mod test_marketplace;
 mod test_merkle;
 mod test_pool_type;
 mod test_queries;

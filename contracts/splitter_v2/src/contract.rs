@@ -203,6 +203,33 @@ pub trait SplitterV2Trait {
         amount: i128,
     ) -> Result<(), Error>;
 
+    /// Marketplace: list `shares_amount` participation tokens for sale at
+    /// `price_per_share` (in `payment_token` units). Escrows the shares into the
+    /// contract. The seller must authorize. One active listing per seller.
+    fn list_shares_for_sale(
+        env: Env,
+        seller: Address,
+        shares_amount: i128,
+        price_per_share: i128,
+        payment_token: Address,
+    ) -> Result<(), Error>;
+
+    /// Marketplace: cancel the seller's listing and return the escrowed shares.
+    fn cancel_listing(env: Env, seller: Address) -> Result<(), Error>;
+
+    /// Marketplace: buy `shares_amount` from `seller`'s listing. The buyer pays the
+    /// seller (minus buy commission) and the commission recipient; the contract
+    /// delivers the escrowed shares. The buyer must authorize.
+    fn buy_shares(
+        env: Env,
+        buyer: Address,
+        seller: Address,
+        shares_amount: i128,
+    ) -> Result<(), Error>;
+
+    /// Marketplace: read a seller's active listing (None if absent).
+    fn get_listing(env: Env, seller: Address) -> Option<crate::storage::SaleListingDataKey>;
+
     /// **ADMIN ONLY** Update shareholder allocations
     ///
     /// Mints/burns participation tokens to adjust shareholder allocations.
@@ -402,6 +429,33 @@ impl SplitterV2Trait for SplitterV2 {
         amount: i128,
     ) -> Result<(), Error> {
         execute::transfer_shares(env, from, to, amount)
+    }
+
+    fn list_shares_for_sale(
+        env: Env,
+        seller: Address,
+        shares_amount: i128,
+        price_per_share: i128,
+        payment_token: Address,
+    ) -> Result<(), Error> {
+        execute::list_shares_for_sale(env, seller, shares_amount, price_per_share, payment_token)
+    }
+
+    fn cancel_listing(env: Env, seller: Address) -> Result<(), Error> {
+        execute::cancel_listing(env, seller)
+    }
+
+    fn buy_shares(
+        env: Env,
+        buyer: Address,
+        seller: Address,
+        shares_amount: i128,
+    ) -> Result<(), Error> {
+        execute::buy_shares(env, buyer, seller, shares_amount)
+    }
+
+    fn get_listing(env: Env, seller: Address) -> Option<crate::storage::SaleListingDataKey> {
+        crate::storage::SaleListingDataKey::get_listing(&env, &seller)
     }
 
     fn update_shares(env: Env, shares: Vec<ShareDataKey>) -> Result<(), Error> {

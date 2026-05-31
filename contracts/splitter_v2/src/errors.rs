@@ -74,4 +74,5 @@ pub enum Error {
     CannotBuyOwnShares = 43,
     InvalidProof = 44,             // Merkle proof did not verify against the round root
     NotSnapshotRound = 45,         // Round was not created with a Merkle snapshot
+    ListingAlreadyExists = 46,     // Seller already has an active listing (cancel first)
 }
