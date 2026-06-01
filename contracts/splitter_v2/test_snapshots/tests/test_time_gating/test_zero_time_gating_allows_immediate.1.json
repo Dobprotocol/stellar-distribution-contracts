@@ -121,7 +121,7 @@
     ],
     [
       [
-        "GCYBJHXG4JRODEFRVXHFWDHRQQSEYYBM2P455ME3OGETCURTQJLZVX72",
+        "GC6XAWU7UNZ2LR6VYX7V2GDC24PZBYMVCBMJKGAFIXQZRNQPMVNOMOHV",
         {
           "function": {
             "contract_fn": {
@@ -397,7 +397,7 @@
       [
         {
           "contract_data": {
-            "contract": "GCYBJHXG4JRODEFRVXHFWDHRQQSEYYBM2P455ME3OGETCURTQJLZVX72",
+            "contract": "GC6XAWU7UNZ2LR6VYX7V2GDC24PZBYMVCBMJKGAFIXQZRNQPMVNOMOHV",
             "key": {
               "ledger_key_nonce": {
                 "nonce": "2032731177588607455"
@@ -412,7 +412,7 @@
             "data": {
               "contract_data": {
                 "ext": "v0",
-                "contract": "GCYBJHXG4JRODEFRVXHFWDHRQQSEYYBM2P455ME3OGETCURTQJLZVX72",
+                "contract": "GC6XAWU7UNZ2LR6VYX7V2GDC24PZBYMVCBMJKGAFIXQZRNQPMVNOMOHV",
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": "2032731177588607455"

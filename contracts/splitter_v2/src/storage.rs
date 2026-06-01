@@ -2,8 +2,10 @@ use soroban_sdk::{contracttype, Address, BytesN, Env, IntoVal, String, Val, Vec}
 
 use crate::errors::Error;
 
-// Default commission address - only this address can change the commission recipient
-const DEFAULT_COMMISSION_ADDRESS: &str = "GCYBJHXG4JRODEFRVXHFWDHRQQSEYYBM2P455ME3OGETCURTQJLZVX72";
+// Default commission address - only this address can change the commission recipient.
+// MUST be the live prod admin wallet (GC6XAWU7…): the old GCYBJHXG… key is LOST, so any
+// commission accruing to it would be unspendable/burned. Matches the V1 splitter default.
+const DEFAULT_COMMISSION_ADDRESS: &str = "GC6XAWU7UNZ2LR6VYX7V2GDC24PZBYMVCBMJKGAFIXQZRNQPMVNOMOHV";
 // Buy commission rate: 150 basis points = 1.5% (on share token purchases via contract)
 const BUY_COMMISSION_BPS: i128 = 150;
 // Distribution commission rate: 50 basis points = 0.5% (on token distributions)
