@@ -103,7 +103,10 @@ fn test_init_already_initialized() {
 }
 
 #[test]
-fn test_init_invalid_share_total() {
+fn test_init_custom_total_shares() {
+    // The total share supply is now per-pool: it equals the SUM of the shares
+    // the creator passes (chosen explicitly for the desired granularity), not a
+    // fixed 10,000. Here we use 1,000,000.
     let env = Env::default();
     env.mock_all_auths();
 
@@ -111,17 +114,35 @@ fn test_init_invalid_share_total() {
     let (splitter, splitter_address) = create_splitter(&env);
     let (_, _, participation_token) = create_participation_token(&env, &splitter_address);
 
-    // Shares sum to 9000, not 10000
+    let h1 = Address::generate(&env);
+    let h2 = Address::generate(&env);
     let shares = vec![
         &env,
-        ShareDataKey {
-            shareholder: Address::generate(&env),
-            share: 5000,
-        },
-        ShareDataKey {
-            shareholder: Address::generate(&env),
-            share: 4000,
-        },
+        ShareDataKey { shareholder: h1.clone(), share: 600_000 },
+        ShareDataKey { shareholder: h2.clone(), share: 400_000 },
+    ];
+    splitter.init(&admin, &shares, &true, &participation_token);
+
+    // Config records the chosen total, and shares are minted in that scale.
+    let config = splitter.get_config();
+    assert_eq!(config.total_shares, 1_000_000);
+    assert_eq!(splitter.get_share(&h1), 600_000);
+    assert_eq!(splitter.get_share(&h2), 400_000);
+}
+
+#[test]
+fn test_init_zero_total_rejected() {
+    // A total of 0 (e.g. a single holder with 0 shares) is invalid.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (splitter, splitter_address) = create_splitter(&env);
+    let (_, _, participation_token) = create_participation_token(&env, &splitter_address);
+
+    let shares = vec![
+        &env,
+        ShareDataKey { shareholder: Address::generate(&env), share: 0 },
     ];
 
     let result = splitter.try_init(&admin, &shares, &true, &participation_token);

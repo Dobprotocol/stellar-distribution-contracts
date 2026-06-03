@@ -9,8 +9,12 @@ use crate::{
     storage::{ShareDataKey, TOTAL_SHARES},
 };
 
-/// Validates that shares sum to TOTAL_SHARES (10,000), all are non-negative, and no duplicates
-pub fn check_shares(shares: &Vec<ShareDataKey>) -> Result<(), Error> {
+/// Validates shares (>=1 holder, non-negative, no duplicates) and returns the
+/// TOTAL supply = sum of shares. The total is no longer fixed to 10,000 — each
+/// pool chooses its own granularity by the magnitude of the shares passed to
+/// `init`; the returned sum is stored in config.total_shares and used as the
+/// distribution denominator.
+pub fn check_shares(shares: &Vec<ShareDataKey>) -> Result<i128, Error> {
     // Require at least one shareholder
     if shares.len() < 1 {
         return Err(Error::LowShareCount);
@@ -37,12 +41,12 @@ pub fn check_shares(shares: &Vec<ShareDataKey>) -> Result<(), Error> {
         total += share.share;
     }
 
-    // Validate total equals TOTAL_SHARES
-    if total != TOTAL_SHARES {
+    // Total must be positive (a pool with 0 total shares can't distribute).
+    if total <= 0 {
         return Err(Error::InvalidShareTotal);
     }
 
-    Ok(())
+    Ok(total)
 }
 
 /// Calculates the proportional amount for a given share

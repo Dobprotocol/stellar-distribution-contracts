@@ -42,19 +42,19 @@ pub fn execute(
         return Err(Error::AlreadyInitialized);
     }
 
-    // 2. Validate shares sum to 10,000
-    check_shares(&shares)?;
+    // 2. Validate shares; the sum becomes this pool's total share supply
+    // (the creator chooses it explicitly — e.g. 1_000_000 for fine granularity).
+    let total_shares = check_shares(&shares)?;
 
-    // 3. Initialize contract configuration with participation token and pool type
-    ConfigDataKey::init(&env, admin.clone(), mutable, participation_token.clone(), pool_type);
+    // 3. Initialize contract configuration with participation token, pool type and total
+    ConfigDataKey::init(&env, admin.clone(), mutable, participation_token.clone(), pool_type, total_shares);
 
     // 4. Mint participation tokens to initial shareholders
     let token_admin = StellarAssetClient::new(&env, &participation_token);
 
     for share in shares.iter() {
-        // Mint tokens equal to the share amount
-        // share.share is in range [0, 10000], representing percentage * 100
-        // e.g., 5000 shares = 50% ownership = 5000 tokens
+        // Mint tokens equal to the share amount. share.share is in the pool's own
+        // scale (sum = total_shares); a holder's % = share / total_shares.
         if share.share > 0 {
             token_admin.mint(&share.shareholder, &share.share);
         }

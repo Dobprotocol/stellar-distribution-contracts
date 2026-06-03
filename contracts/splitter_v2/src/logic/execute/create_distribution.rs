@@ -74,6 +74,10 @@ pub fn execute_internal(env: Env, token_address: Address, is_admin_call: bool, s
     let dist_config = DistributionConfig::get(&env);
     let current_time = env.ledger().timestamp();
 
+    // The round's denominator is the pool's total share supply (chosen at init),
+    // not the old fixed 10,000. Fall back to TOTAL_SHARES only if config is absent.
+    let total_shares = ConfigDataKey::get(&env).map(|c| c.total_shares).unwrap_or(TOTAL_SHARES);
+
     // Get token balance
     let token_client = token::Client::new(&env, &token_address);
     let balance = token_client.balance(&env.current_contract_address());
@@ -122,7 +126,7 @@ pub fn execute_internal(env: Env, token_address: Address, is_admin_call: bool, s
         id: round_id,
         token: token_address.clone(),
         total_amount: amount_for_distribution,
-        total_supply_snapshot: TOTAL_SHARES, // Always 10,000 for participation tokens
+        total_supply_snapshot: total_shares, // pool's configured total supply (denominator)
         created_at: current_time,
         claimable_from,
         expires_at,

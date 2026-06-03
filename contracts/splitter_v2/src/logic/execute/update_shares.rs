@@ -11,7 +11,7 @@ use soroban_sdk::{symbol_short, token::StellarAssetClient, Env, Vec};
 use crate::{
     errors::Error,
     logic::helpers::check_shares,
-    storage::{ConfigDataKey, ShareDataKey, TOTAL_SHARES},
+    storage::{ConfigDataKey, ShareDataKey},
     token::get_user_balance,
 };
 
@@ -41,8 +41,13 @@ pub fn execute(env: Env, shares: Vec<ShareDataKey>) -> Result<(), Error> {
         return Err(Error::ContractLocked);
     }
 
-    // Validate shares sum to 10,000
-    check_shares(&shares)?;
+    // Validate shares; updating may only REDISTRIBUTE the existing supply, not
+    // resize it — so the new sum must equal the pool's stored total_shares.
+    let total = check_shares(&shares)?;
+    let config = ConfigDataKey::get(&env).ok_or(Error::NotInitialized)?;
+    if total != config.total_shares {
+        return Err(Error::InvalidShareTotal);
+    }
 
     // Get participation token
     let participation_token = ConfigDataKey::get_participation_token(&env)

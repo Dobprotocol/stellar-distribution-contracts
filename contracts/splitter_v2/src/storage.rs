@@ -264,11 +264,15 @@ pub struct ConfigDataKey {
     pub mutable: bool,
     pub participation_token: Address, // The SAC token address for participation tokens
     pub pool_type: PoolType,          // NEW: Pool type classification
+    pub total_shares: i128,           // NEW: per-pool total share supply (= sum of init shares).
+    // Replaces the fixed TOTAL_SHARES constant so each pool chooses its own
+    // granularity (e.g. 1_000_000 -> 0.0001%); used as the distribution denominator.
 }
 
 impl ConfigDataKey {
-    /// Initializes the config with the given admin, mutable flag, and participation token
-    pub fn init(e: &Env, admin: Address, mutable: bool, participation_token: Address, pool_type: PoolType) {
+    /// Initializes the config with the given admin, mutable flag, participation token,
+    /// pool type and the pool's total share supply.
+    pub fn init(e: &Env, admin: Address, mutable: bool, participation_token: Address, pool_type: PoolType, total_shares: i128) {
         bump_instance(e);
         let key = DataKey::Config;
         let config = ConfigDataKey {
@@ -276,6 +280,7 @@ impl ConfigDataKey {
             mutable,
             participation_token,
             pool_type,
+            total_shares,
         };
         e.storage().instance().set(&key, &config);
     }
