@@ -62,12 +62,12 @@ pub enum PayoutMode {
 
 /// Main campaign configuration.
 ///
-/// price_per_share: how many payment_token units buys 1 share (out of 10 000).
+/// price_per_share: how many payment_token units buys 1 share (out of 1 000 000).
 /// Example: if USDC has 7 decimals, 1 share at $10 = price_per_share = 100_000_000 (10 × 10^7).
 ///
-/// soft_cap_shares: minimum shares sold to declare success  [1, 10 000].
-/// hard_cap_shares: maximum shares available               [soft_cap, 10 000].
-/// (Pass 10 000 for hard_cap_shares to allow full participation.)
+/// soft_cap_shares: minimum shares sold to declare success  [1, 1 000 000].
+/// hard_cap_shares: maximum shares available               [soft_cap, 1 000 000].
+/// (Pass 1 000 000 for hard_cap_shares to allow full participation.)
 #[derive(Clone, Debug)]
 #[contracttype]
 pub struct CrowdfundConfig {

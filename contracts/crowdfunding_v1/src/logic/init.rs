@@ -3,6 +3,10 @@ use soroban_sdk::{symbol_short, Address, Env};
 use crate::errors::Error;
 use crate::storage::{CampaignStatus, CrowdfundConfig, PayoutMode};
 
+/// Total share granularity of a campaign (100% of the pool). 1_000_000 shares
+/// = a 0.0001% smallest unit, matching the splitter pools.
+const MAX_SHARES: i128 = 1_000_000;
+
 pub fn execute(
     env: Env,
     admin: Address,
@@ -22,10 +26,10 @@ pub fn execute(
     if price_per_share <= 0 {
         return Err(Error::InvalidPrice);
     }
-    if soft_cap_shares <= 0 || soft_cap_shares > 10_000 {
+    if soft_cap_shares <= 0 || soft_cap_shares > MAX_SHARES {
         return Err(Error::InvalidCap);
     }
-    if hard_cap_shares < soft_cap_shares || hard_cap_shares > 10_000 {
+    if hard_cap_shares < soft_cap_shares || hard_cap_shares > MAX_SHARES {
         return Err(Error::InvalidCap);
     }
     if deadline <= env.ledger().timestamp() {

@@ -28,10 +28,10 @@ impl Crowdfunding {
 
     /// Initialise the campaign.
     ///
-    /// - `price_per_share`: payment_token units for 1 share out of 10 000.
-    /// - `soft_cap_shares`: minimum shares sold to mark campaign Succeeded [1, 10 000].
-    /// - `hard_cap_shares`: maximum shares available [soft_cap, 10 000].
-    ///   Pass 10 000 for no effective hard cap.
+    /// - `price_per_share`: payment_token units for 1 share out of 1 000 000.
+    /// - `soft_cap_shares`: minimum shares sold to mark campaign Succeeded [1, 1 000 000].
+    /// - `hard_cap_shares`: maximum shares available [soft_cap, 1 000 000].
+    ///   Pass 1 000 000 for no effective hard cap.
     /// - `deadline`: unix timestamp after which finalize() can be called.
     /// - `payout_mode`: 0 = Escrow (funds → splitter on activate, default),
     ///                  1 = DirectToOwner (funds → admin on activate, resell mode).
