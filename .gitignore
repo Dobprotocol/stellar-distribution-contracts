@@ -26,3 +26,18 @@ contracts/splitter/test_snapshots/*
 contracts/deployer/test_snapshots/*
 scripts/deploy.sh
 Cargo.lock
+
+# Secrets. This repository is public and its releases are attested, so nothing
+# that could carry a key may be committed even by accident.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+**/secrets.json
+**/test-wallets.json
+.soroban/
+.stellar/
+
+# Local agent context, never published.
+CLAUDE.md
