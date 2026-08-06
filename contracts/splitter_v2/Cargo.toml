@@ -1,6 +1,6 @@
 [package]
 name = "soro-splitter-v2"
-version = "2.0.0"
+version = "2.2.0"
 edition = "2021"
 description = "Tokenized distribution splitter with lazy distribution and DEX-tradeable participation tokens"
 
