@@ -15,13 +15,19 @@
 //!   3. `activate(splitter)` — admin only, must pass the SAME address proposed,
 //!      and only after the ETA.
 //!
-//! What this does and does not buy, stated plainly: the timelock cannot stop an
-//! admin determined to deploy a splitter with a self-serving cap table, because
-//! the campaign keeps no investor index and therefore cannot verify the cap
-//! table on-chain. What it does is turn a silent, instantaneous transfer into a
-//! publicly announced one with a week of lead time, which is what makes
-//! off-chain review (the platform, the sync script, the investors) possible at
-//! all. `expire_activation` below is the matching guarantee on the other side.
+//! What this does and does not buy, stated plainly: it cannot stop an admin
+//! determined to deploy a splitter with a self-serving cap table, because the
+//! campaign keeps no investor index and therefore cannot verify the cap table
+//! on-chain. What it does is refuse destinations that are obviously not a
+//! splitter — which is what kills the fat-finger that used to send an entire
+//! raise into the void — and put the destination on-chain before a single token
+//! moves, so the transfer is auditable instead of silent.
+//!
+//! ACTIVATION_TIMELOCK_SECONDS is zero, so step 2 may follow step 1 immediately.
+//! The announcement is an audit record, not a mandatory review window; the
+//! window is optional and served by the admin waiting, during which `opt_out`
+//! is open. `expire_activation` below is the matching guarantee on the other
+//! side: an admin who never activates cannot strand the money.
 
 use soroban_sdk::{contractclient, symbol_short, token, Address, Env};
 
@@ -146,11 +152,11 @@ pub fn execute(env: Env, splitter_address: Address) -> Result<i128, Error> {
     Ok(total_raised)
 }
 
-/// AUDIT 2026-08 (C-1, second half) — the investors' side of the notice period.
+/// AUDIT 2026-08 (C-1, second half) — the investors' side of the announcement.
 ///
-/// A week of visibility is only worth something if an investor who dislikes
-/// what they see can act on it. While a proposal is pending, and only then, a
-/// contributor may take their whole contribution back and leave the campaign.
+/// Visibility is only worth something if an investor who dislikes what they see
+/// can act on it. While a proposal is pending, and only then, a contributor may
+/// take their whole contribution back and leave the campaign.
 ///
 /// Leaving also withdraws the proposal. The admin sized the splitter's cap
 /// table against the contributor list as it stood when they proposed; once
@@ -175,11 +181,11 @@ pub fn execute_opt_out(env: Env, investor: Address) -> Result<i128, Error> {
         return Err(Error::CampaignNotSucceeded);
     }
 
+    // Gated on a proposal being pending, NOT on the timelock, which is zero:
+    // an exit tied to a zero-length window would be unreachable code. The exit
+    // window is therefore exactly how long the admin waits between proposing
+    // and activating.
     let _pending = get_pending_splitter(&env).ok_or(Error::NoPendingActivation)?;
-    let eta = get_activation_eta(&env).ok_or(Error::NoPendingActivation)?;
-    if env.ledger().timestamp() >= eta {
-        return Err(Error::NoticePeriodOver);
-    }
 
     let shares = crate::storage::get_contribution(&env, &investor);
     if shares <= 0 {
@@ -216,13 +222,26 @@ pub fn execute_opt_out(env: Env, investor: Address) -> Result<i128, Error> {
 }
 
 /// The admin may withdraw a proposal it no longer intends to execute.
+///
+/// This emits `cf_cncl`. Without it an indexer that learned about the proposal
+/// from `cf_prop` would keep showing a destination that is no longer standing,
+/// and the investors' `opt_out` window would look open when it is not — the
+/// off-chain view has no other way to observe the withdrawal.
 pub fn execute_cancel_proposal(env: Env) -> Result<(), Error> {
     if !CrowdfundConfig::exists(&env) {
         return Err(Error::NotInitialized);
     }
     let config = CrowdfundConfig::get(&env);
     config.admin.require_auth();
+
+    let withdrawn = get_pending_splitter(&env).ok_or(Error::NoPendingActivation)?;
     clear_pending_activation(&env);
+
+    // event: (cf_cncl, contract) → withdrawn splitter
+    env.events().publish(
+        (symbol_short!("cf_cncl"), env.current_contract_address()),
+        withdrawn,
+    );
     Ok(())
 }
 
@@ -235,9 +254,9 @@ pub fn execute_cancel_proposal(env: Env) -> Result<(), Error> {
 ///
 /// After `deadline + ACTIVATION_DEADLINE_SECONDS` anyone may flip such a
 /// campaign to `Failed`, which opens the ordinary refund path for every
-/// investor. The admin has 90 days to activate and must propose by day 83 to
-/// clear the 7-day timelock, so this can never surprise an admin acting in
-/// good faith.
+/// investor. The admin has 90 days to activate, and with the activation
+/// timelock at zero the announcement and the transfer can both happen on the
+/// last of them, so this can never surprise an admin acting in good faith.
 pub fn execute_expire(env: Env) -> Result<CampaignStatus, Error> {
     if !CrowdfundConfig::exists(&env) {
         return Err(Error::NotInitialized);

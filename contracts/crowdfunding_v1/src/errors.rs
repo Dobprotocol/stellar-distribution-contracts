@@ -34,5 +34,8 @@ pub enum Error {
     InvalidSplitter = 20,
     ActivationWindowExpired = 21,
     ActivationWindowStillOpen = 22,
+    /// Kept declared so the discriminants below never shift, but no longer
+    /// returned: `opt_out` is gated on a proposal being pending rather than on
+    /// the (zero) activation timelock.
     NoticePeriodOver = 23,
 }

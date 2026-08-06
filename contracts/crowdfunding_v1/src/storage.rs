@@ -85,10 +85,15 @@ pub enum DataKey {
 // ============================================================================
 
 /// How long a proposed splitter stays visible before the escrow can move.
-/// The whole point is that the destination is announced on-chain (event
-/// `cf_prop`) with enough lead time for investors and the platform to check the
-/// target's cap table before a single token leaves the contract.
-pub const ACTIVATION_TIMELOCK_SECONDS: u64 = 7 * 24 * 60 * 60;
+///
+/// DELIBERATELY ZERO. The two-step flow stays — the destination is probed,
+/// announced on-chain (`cf_prop`), and `activate` must repeat the exact address
+/// proposed — but the protocol imposes no waiting period on a legitimate raise.
+/// Announcing and then waiting is a policy the platform can apply off-chain by
+/// simply not activating immediately; while it waits, `opt_out` is open. The
+/// checks reading this constant stay in place and armed, so raising it to
+/// `24 * 60 * 60` later is a one-line change with no other edit.
+pub const ACTIVATION_TIMELOCK_SECONDS: u64 = 0;
 
 /// Deadline for the admin to finish activating a SUCCEEDED campaign. Past this,
 /// `expire_activation` lets anyone flip the campaign to Failed so investors can

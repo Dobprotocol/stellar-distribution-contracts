@@ -5,9 +5,12 @@
 //! whole lifecycle and pins the fixed activation semantics:
 //!
 //!   C-1  `activate` sent the entire escrow to any address in one call, with no
-//!        check on the destination. It is now propose → 7-day timelock →
-//!        activate-the-same-address, and the destination must be a live
-//!        splitter.
+//!        check on the destination. It is now propose → activate-the-same-
+//!        address, the destination must be a live splitter, and an investor may
+//!        leave with their whole contribution while the proposal stands. The
+//!        timelock between the two steps is a knob currently set to zero, so a
+//!        legitimate raise is not made to wait; see
+//!        `the_timelock_check_is_still_armed_at_zero`.
 //!   C-2  A campaign that reached its soft cap but was never activated held the
 //!        money for ever. `expire_activation` now opens refunds once the
 //!        activation window closes.
@@ -16,9 +19,9 @@
 extern crate std;
 
 use soroban_sdk::{
-    contract, contractimpl,
-    testutils::{Address as _, Ledger},
-    token, Address, Env,
+    contract, contractimpl, symbol_short,
+    testutils::{Address as _, Events, Ledger},
+    token, Address, Env, IntoVal, Symbol,
 };
 
 use crate::{
@@ -177,7 +180,24 @@ fn activate_requires_a_prior_proposal() {
 }
 
 #[test]
-fn activate_is_blocked_until_the_timelock_elapses() {
+fn activation_may_follow_its_announcement_immediately() {
+    let ctx = setup();
+    let raised = succeed(&ctx);
+    let splitter = ctx.env.register(MockSplitter, ());
+    let eta = ctx.cf.propose_activation(&splitter);
+
+    // ACTIVATION_TIMELOCK_SECONDS is zero, so the ETA is the announcement
+    // itself and a legitimate raise is not made to wait.
+    assert_eq!(eta, ctx.env.ledger().timestamp());
+    assert_eq!(ctx.cf.activate(&splitter), raised);
+    assert_eq!(ctx.payment.balance(&splitter), raised);
+}
+
+/// The timelock is a knob set to zero, not a check that was deleted. Rewinding
+/// the ledger below the stored ETA proves the comparison is still wired, so
+/// raising the constant re-arms the delay with no other code change.
+#[test]
+fn the_timelock_check_is_still_armed_at_zero() {
     let ctx = setup();
     let raised = succeed(&ctx);
     let splitter = ctx.env.register(MockSplitter, ());
@@ -189,9 +209,6 @@ fn activate_is_blocked_until_the_timelock_elapses() {
         Err(Ok(Error::ActivationTimelockPending))
     );
     assert_eq!(ctx.payment.balance(&ctx.cf_address), raised);
-
-    ctx.env.ledger().set_timestamp(eta);
-    assert_eq!(ctx.cf.activate(&splitter), raised);
 }
 
 #[test]
@@ -264,7 +281,25 @@ fn admin_can_withdraw_a_proposal() {
     assert!(ctx.cf.get_pending_activation().is_some());
 
     ctx.cf.cancel_activation();
+
+    // The withdrawal has to be observable. `cf_prop` told the indexer a
+    // destination was standing; without a matching event the off-chain view
+    // would keep showing it, and would show the investors an exit that is
+    // already closed. Read the buffer here: the next invocation, read-only or
+    // not, replaces it.
+    let emitted = ctx.env.events().all();
+    let (_, topics, _) = emitted.last().unwrap();
+    let topic: Symbol = topics.first().unwrap().into_val(&ctx.env);
+    assert_eq!(topic, symbol_short!("cf_cncl"));
+
     assert_eq!(ctx.cf.get_pending_activation(), None);
+
+    // Nothing left to withdraw — cancelling twice is an error, not a silent
+    // no-op that would emit a second, meaningless event.
+    assert_eq!(
+        ctx.cf.try_cancel_activation(),
+        Err(Ok(Error::NoPendingActivation))
+    );
 
     ctx.env
         .ledger()
@@ -482,44 +517,40 @@ fn leaving_withdraws_the_proposal_so_the_admin_must_re_announce() {
         Err(Ok(Error::NoPendingActivation))
     );
 
-    // A fresh proposal serves a fresh notice — the admin cannot inherit the
-    // week that already elapsed.
+    // The admin has to announce again, against the corrected contributor list.
     let eta2 = ctx.cf.propose_activation(&splitter);
     assert_eq!(eta2, eta + ACTIVATION_TIMELOCK_SECONDS);
-    assert_eq!(
-        ctx.cf.try_activate(&splitter),
-        Err(Ok(Error::ActivationTimelockPending))
-    );
 
     // And what finally moves is only the money of the investors who stayed.
-    ctx.env.ledger().set_timestamp(eta2);
     assert_eq!(ctx.cf.activate(&splitter), 500 * PRICE);
     assert_eq!(ctx.payment.balance(&splitter), 500 * PRICE);
     assert_eq!(ctx.payment.balance(&ctx.cf_address), 0);
 }
 
 #[test]
-fn leaving_is_only_possible_while_a_notice_is_actually_running() {
+fn leaving_is_only_possible_while_a_proposal_is_standing() {
     let ctx = setup();
     succeed(&ctx);
 
-    // No proposal yet.
+    // No proposal yet: there is nothing announced to object to.
     assert_eq!(
         ctx.cf.try_opt_out(&ctx.investor_a),
         Err(Ok(Error::NoPendingActivation))
     );
 
     let splitter = ctx.env.register(MockSplitter, ());
-    let eta = ctx.cf.propose_activation(&splitter);
+    ctx.cf.propose_activation(&splitter);
 
-    // Once the notice has run out the admin may activate, so the exit closes.
-    ctx.env.ledger().set_timestamp(eta);
+    // Withdrawing the proposal closes the exit again — the exit tracks the
+    // standing announcement, not the clock.
+    ctx.cf.cancel_activation();
     assert_eq!(
         ctx.cf.try_opt_out(&ctx.investor_a),
-        Err(Ok(Error::NoticePeriodOver))
+        Err(Ok(Error::NoPendingActivation))
     );
 
-    // And after activation there is nothing left to leave.
+    // And once the escrow has moved there is nothing left to leave.
+    ctx.cf.propose_activation(&splitter);
     ctx.cf.activate(&splitter);
     assert_eq!(
         ctx.cf.try_opt_out(&ctx.investor_a),

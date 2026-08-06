@@ -11,9 +11,11 @@
 # gasta XLM real.
 #
 # Lo que NO se puede probar aca: los caminos que dependen de saltar el reloj
-# (expiry de rondas, timelock de admin cumplido, activacion despues de los 7
-# dias de aviso). Una cadena real no se puede warpear; esos caminos estan
-# cubiertos con ledger.timestamp manipulado en las suites de cargo.
+# (expiry de rondas, timelock de admin cumplido, expire_activation a los 90
+# dias). Una cadena real no se puede warpear; esos caminos estan cubiertos con
+# ledger.timestamp manipulado en las suites de cargo. El ciclo completo del
+# crowdfunding SI se cierra aca, incluida la activacion, porque el timelock de
+# activacion quedo en cero.
 #
 # Nota de bash, por si alguien la vuelve a pisar: aca NO se usa `pipefail` ni
 # `cmd | grep -q`. `grep -q` sale apenas encuentra la coincidencia, el CLI
@@ -240,11 +242,12 @@ must "finalize" "$CF" $SRC finalize
 # El CLI devuelve el discriminante del enum, no su nombre: 1 = Succeeded.
 check "estado Succeeded" "$RES" '1'
 
-# C-1: la activacion es propose -> 7 dias de aviso -> activate.
+# C-1: la activacion es propose -> activate, en dos pasos y con el destino
+# anunciado on-chain. El timelock quedo en cero a proposito, asi que el segundo
+# paso puede seguir al primero de inmediato y una campana legitima no espera.
 must "propose_activation" "$CF" $SRC propose_activation --splitter_address "$SPLITTER"
 ETA=${RES//\"/}
 echo "  activacion anunciada para: $(date -d @"$ETA" -Iseconds 2>/dev/null || echo "$ETA")"
-expect_err "C-1 — activate durante el aviso" 18 "$CF" $SRC activate --splitter_address "$SPLITTER"
 expect_err "C-1 — activate a un destino distinto del propuesto" 19 "$CF" $SRC activate --splitter_address "$TUSD"
 # propose_activation hace config.admin.require_auth(). En Soroban eso no
 # devuelve Unauthorized: la transaccion ni siquiera se arma, porque exige una
@@ -258,19 +261,36 @@ else
     bad "C-1 — propose_activation por un no-admin fallo por otro motivo — $(tail3)"
 fi
 
-# La otra mitad de C-1: durante el aviso el inversor puede irse. Se simula
-# (--send=no) para no vaciar el escrow ni retirar la propuesta; el camino real
-# esta cubierto en las suites de cargo.
+# La otra mitad de C-1: mientras la propuesta este en pie el inversor puede
+# irse con todo su dinero. Se simula (--send=no) para no vaciar el escrow ni
+# retirar la propuesta; el camino real esta cubierto en las suites de cargo.
+# La ventana de salida dura exactamente lo que el admin tarde en activar.
 OUT=$(stellar contract invoke --id "$CF" --source sh1 --network $NET --send no -- \
         opt_out --investor "$SH1" 2>&1)
 if [[ "$OUT" == *"10000"* ]]; then
-    ok "C-1 — opt_out disponible durante el aviso, devolveria 10000"
+    ok "C-1 — opt_out disponible mientras la propuesta esta en pie, devolveria 10000"
 else
-    bad "C-1 — opt_out NO esta disponible durante el aviso — $(tail3)"
+    bad "C-1 — opt_out NO esta disponible con una propuesta en pie — $(tail3)"
 fi
 
-# C-2: expire_activation todavia no aplica (la ventana sigue abierta).
+# C-2: expire_activation todavia no aplica (la ventana sigue abierta). Va antes
+# de activar, porque despues la campana ya no esta en Succeeded.
 expect_err "C-2 — expire_activation antes de tiempo" 22 "$CF" sh2 expire_activation
+
+# Y ahora se cierra la campana de verdad, cosa que el timelock de 7 dias hacia
+# imposible en una sola corrida. El escrow completo se mueve al splitter.
+# Ojo: $SPLITTER es el mismo del bloque de distribucion, o sea que ya tiene
+# saldo. Lo que se mide es el delta, no el absoluto.
+run "$TUSD" $SRC balance --id "$SPLITTER"; SPL_ANTES=${RES//\"/}
+must "activate" "$CF" $SRC activate --splitter_address "$SPLITTER"
+run "$TUSD" $SRC balance --id "$SPLITTER"; SPL_DESPUES=${RES//\"/}
+check "el escrow entero llego al splitter" "$((SPL_DESPUES - SPL_ANTES))" '10000'
+run "$TUSD" $SRC balance --id "$CF"
+check "la campana quedo en cero" "${RES//\"/}" '0'
+run "$CF" $SRC get_splitter
+check "splitter registrado para el front/sync" "${RES//\"/}" "$SPLITTER"
+# Cerrada la campana ya no hay de donde salirse.
+expect_err "C-1 — opt_out despues de activar" 9 "$CF" sh1 opt_out --investor "$SH1"
 
 # ------------------------------------------------------------- resultado
 echo
