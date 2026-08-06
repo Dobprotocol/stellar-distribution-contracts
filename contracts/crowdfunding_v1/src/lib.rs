@@ -31,6 +31,10 @@ impl Crowdfunding {
     /// - `hard_cap_shares`: maximum shares available [soft_cap, 1 000 000].
     ///   Pass 1 000 000 for no effective hard cap.
     /// - `deadline`: unix timestamp after which finalize() can be called.
+    /// - `payout_mode`: 0 = Escrow (raised funds → splitter), 1 = DirectToOwner
+    ///   (raised funds → admin, resell mode). Fixed at init and public
+    ///   thereafter, so an investor knows before contributing where the money
+    ///   goes on activation.
     pub fn init(
         env: Env,
         admin: Address,
@@ -39,6 +43,7 @@ impl Crowdfunding {
         soft_cap_shares: i128,
         hard_cap_shares: i128,
         deadline: u64,
+        payout_mode: u32,
     ) -> Result<(), Error> {
         logic::init::execute(
             env,
@@ -48,6 +53,7 @@ impl Crowdfunding {
             soft_cap_shares,
             hard_cap_shares,
             deadline,
+            payout_mode,
         )
     }
 

@@ -39,6 +39,24 @@ pub enum CampaignStatus {
 }
 
 // ============================================================================
+// PayoutMode
+// ============================================================================
+
+/// Where the raised funds go on activate().
+///
+/// - Escrow (0): raised funds → splitter contract (default — funds a project).
+/// - DirectToOwner (1): raised funds → admin directly (resell mode — owner
+///   sold the right to future sale proceeds; the splitter sits empty until
+///   the owner later deposits the real-world sale amount and anyone calls
+///   distribute() on the splitter).
+#[derive(Clone, Debug, PartialEq, Copy)]
+#[contracttype]
+pub enum PayoutMode {
+    Escrow = 0,
+    DirectToOwner = 1,
+}
+
+// ============================================================================
 // CrowdfundConfig  (stored in instance storage)
 // ============================================================================
 
@@ -61,6 +79,10 @@ pub struct CrowdfundConfig {
     pub deadline: u64,
     pub status: CampaignStatus,
     pub total_shares_sold: i128,
+    /// Field name and position match the wasm live on mainnet
+    /// (`bf0a3d1e…`), so an existing campaign upgraded to this build keeps
+    /// deserialising its stored config.
+    pub payout_mode: PayoutMode,
 }
 
 // ============================================================================

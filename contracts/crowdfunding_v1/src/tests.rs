@@ -26,7 +26,7 @@ use soroban_sdk::{
 
 use crate::{
     errors::Error,
-    storage::{CampaignStatus, ACTIVATION_DEADLINE_SECONDS, ACTIVATION_TIMELOCK_SECONDS},
+    storage::{CampaignStatus, PayoutMode, ACTIVATION_DEADLINE_SECONDS, ACTIVATION_TIMELOCK_SECONDS},
     Crowdfunding, CrowdfundingClient,
 };
 
@@ -68,6 +68,13 @@ struct Ctx<'a> {
 }
 
 fn setup<'a>() -> Ctx<'a> {
+    setup_with_mode(0)
+}
+
+/// `payout_mode`: 0 = Escrow (funds → splitter), 1 = DirectToOwner (funds →
+/// admin). Every pre-existing test runs in Escrow mode, which is the default and
+/// what `setup()` gives them.
+fn setup_with_mode<'a>(payout_mode: u32) -> Ctx<'a> {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().set_timestamp(1_000);
@@ -88,6 +95,7 @@ fn setup<'a>() -> Ctx<'a> {
         &SOFT_CAP,
         &HARD_CAP,
         &DEADLINE,
+        &payout_mode,
     );
 
     let investor_a = Address::generate(&env);
@@ -598,4 +606,86 @@ fn everyone_leaving_empties_the_campaign_without_breaking_it() {
         ctx.cf.try_refund(&ctx.investor_a),
         Err(Ok(Error::NothingToRefund))
     );
+}
+
+// ============================================================================
+// Payout mode
+//
+// `payout_mode` is not an audit fix — it is a live mainnet feature (wasm
+// bf0a3d1e…) that the audit branch had forked away from, and the back-end
+// already sends it on init. These tests pin it so the reconciled build cannot
+// regress the resell flow.
+// ============================================================================
+
+#[test]
+fn direct_to_owner_pays_the_admin_and_leaves_the_splitter_empty() {
+    let ctx = setup_with_mode(1);
+    let raised = succeed(&ctx);
+    let admin_before = ctx.payment.balance(&ctx.admin);
+
+    let splitter = ctx.env.register(MockSplitter, ());
+    let eta = ctx.cf.propose_activation(&splitter);
+    ctx.env.ledger().set_timestamp(eta);
+    assert_eq!(ctx.cf.activate(&splitter), raised);
+
+    // The money went to the owner, not to the cap table.
+    assert_eq!(ctx.payment.balance(&ctx.admin), admin_before + raised);
+    assert_eq!(ctx.payment.balance(&splitter), 0);
+    assert_eq!(ctx.payment.balance(&ctx.cf_address), 0);
+    // The splitter is still recorded — it is the cap table in both modes.
+    assert_eq!(ctx.cf.get_splitter(), Some(splitter));
+    assert_eq!(ctx.cf.get_status(), CampaignStatus::Activated);
+}
+
+#[test]
+fn the_payout_mode_is_fixed_at_init_and_readable_before_contributing() {
+    let escrow = setup_with_mode(0);
+    assert_eq!(escrow.cf.get_config().payout_mode, PayoutMode::Escrow);
+
+    let resell = setup_with_mode(1);
+    assert_eq!(resell.cf.get_config().payout_mode, PayoutMode::DirectToOwner);
+}
+
+#[test]
+fn init_rejects_an_unknown_payout_mode() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000);
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let payment_address = env.register_stellar_asset_contract_v2(token_admin).address();
+
+    let cf = CrowdfundingClient::new(&env, &env.register(Crowdfunding, ()));
+    assert_eq!(
+        cf.try_init(
+            &admin,
+            &payment_address,
+            &PRICE,
+            &SOFT_CAP,
+            &HARD_CAP,
+            &DEADLINE,
+            &2,
+        ),
+        Err(Ok(Error::InvalidPayoutMode))
+    );
+}
+
+#[test]
+fn an_investor_can_still_walk_away_in_resell_mode() {
+    // In DirectToOwner the destination check cannot protect the escrow — the
+    // admin receiving it is the point. `opt_out` is what remains, so it has to
+    // work here too, or the resell mode would have no investor-side guarantee.
+    let ctx = setup_with_mode(1);
+    succeed(&ctx);
+
+    let splitter = ctx.env.register(MockSplitter, ());
+    ctx.cf.propose_activation(&splitter);
+
+    let before = ctx.payment.balance(&ctx.investor_a);
+    assert_eq!(ctx.cf.opt_out(&ctx.investor_a), 700 * PRICE);
+    assert_eq!(ctx.payment.balance(&ctx.investor_a), before + 700 * PRICE);
+    assert_eq!(ctx.cf.get_contribution(&ctx.investor_a), 0);
+    // Leaving withdraws the proposal, so the admin must re-announce.
+    assert_eq!(ctx.cf.get_pending_activation(), None);
 }

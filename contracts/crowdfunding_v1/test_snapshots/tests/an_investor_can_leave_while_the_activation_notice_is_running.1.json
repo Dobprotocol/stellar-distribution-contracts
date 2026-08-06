@@ -51,6 +51,9 @@
                 },
                 {
                   "u64": "100000"
+                },
+                {
+                  "u32": 0
                 }
               ]
             }
@@ -594,6 +597,14 @@
                               },
                               "val": {
                                 "address": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "payout_mode"
+                              },
+                              "val": {
+                                "u32": 0
                               }
                             },
                             {

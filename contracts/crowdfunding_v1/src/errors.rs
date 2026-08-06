@@ -38,4 +38,11 @@ pub enum Error {
     /// returned: `opt_out` is gated on a proposal being pending rather than on
     /// the (zero) activation timelock.
     NoticePeriodOver = 23,
+    /// Payout mode. The wasm live on mainnet numbers this 17; here 17…23 were
+    /// already taken by the audit errors above, and renumbering them would
+    /// invalidate the codes quoted in the audit report and in the tests.
+    /// Nothing off-chain matches on the numeric code — the back-end validates
+    /// the payout mode itself before it ever reaches the contract — so the two
+    /// builds are free to disagree on this one discriminant.
+    InvalidPayoutMode = 24,
 }

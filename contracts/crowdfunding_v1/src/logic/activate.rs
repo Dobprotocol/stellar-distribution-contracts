@@ -34,7 +34,8 @@ use soroban_sdk::{contractclient, symbol_short, token, Address, Env};
 use crate::errors::Error;
 use crate::storage::{
     clear_pending_activation, get_activation_eta, get_pending_splitter, save_pending_activation,
-    CampaignStatus, CrowdfundConfig, ACTIVATION_DEADLINE_SECONDS, ACTIVATION_TIMELOCK_SECONDS,
+    CampaignStatus, CrowdfundConfig, PayoutMode, ACTIVATION_DEADLINE_SECONDS,
+    ACTIVATION_TIMELOCK_SECONDS,
 };
 
 /// Minimal probe interface. Both the V1 and the V2 splitter expose
@@ -128,25 +129,42 @@ pub fn execute(env: Env, splitter_address: Address) -> Result<i128, Error> {
 
     let total_raised = crate::storage::get_total_raised(&env);
 
-    // Transfer all escrowed funds to the splitter contract
-    let token_client = token::Client::new(&env, &config.payment_token);
-    token_client.transfer(
-        &env.current_contract_address(),
-        &splitter_address,
-        &total_raised,
-    );
+    // Where the money actually goes. In Escrow mode it funds the splitter, which
+    // is the address just probed and announced. In DirectToOwner (resell) mode
+    // it goes to the admin by design: the owner already sold the right to the
+    // future sale proceeds, and the splitter stays empty until the owner
+    // deposits the real-world amount into it.
+    //
+    // Worth being explicit about what that means for C-1: in DirectToOwner the
+    // destination check cannot protect the money, because the admin receiving it
+    // IS the intended outcome. What still protects the investor is the other
+    // half of the two-step flow — the mode is fixed at init and public, the
+    // proposal is announced before anything moves, and `opt_out` stays open for
+    // as long as the proposal stands.
+    let destination = match config.payout_mode {
+        PayoutMode::Escrow => splitter_address.clone(),
+        PayoutMode::DirectToOwner => config.admin.clone(),
+    };
 
-    // Store splitter address for frontend/sync to discover
+    let token_client = token::Client::new(&env, &config.payment_token);
+    token_client.transfer(&env.current_contract_address(), &destination, &total_raised);
+
+    // Store splitter address for frontend/sync to discover — in both modes, as
+    // it is the cap table either way.
     crate::storage::save_splitter_address(&env, &splitter_address);
     clear_pending_activation(&env);
 
     config.status = CampaignStatus::Activated;
     CrowdfundConfig::save(&env, &config);
 
-    // event: (cf_actv, contract) → (splitter_address, total_raised)
+    // event: (cf_actv, contract) → (splitter_address, total_raised, payout_mode)
+    let payout_mode_u32: u32 = match config.payout_mode {
+        PayoutMode::Escrow => 0,
+        PayoutMode::DirectToOwner => 1,
+    };
     env.events().publish(
         (symbol_short!("cf_actv"), env.current_contract_address()),
-        (splitter_address, total_raised),
+        (splitter_address, total_raised, payout_mode_u32),
     );
 
     Ok(total_raised)
