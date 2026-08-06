@@ -6,7 +6,7 @@ use soroban_sdk::Vec;
 
 use crate::{
     errors::Error,
-    storage::{ShareDataKey, TOTAL_SHARES},
+    storage::ShareDataKey,
 };
 
 /// Validates shares (>=1 holder, non-negative, no duplicates) and returns the
@@ -49,17 +49,29 @@ pub fn check_shares(shares: &Vec<ShareDataKey>) -> Result<i128, Error> {
     Ok(total)
 }
 
-/// Calculates the proportional amount for a given share
-/// Formula: (total_amount * share) / TOTAL_SHARES
-pub fn calculate_proportional_amount(total_amount: i128, share: i128) -> Result<i128, Error> {
-    if share < 0 || share > TOTAL_SHARES {
+/// Calculates the proportional amount for a given share.
+/// Formula: (total_amount * share) / total_shares
+///
+/// AUDIT 2026-08 (S-7). This used to divide by the legacy `TOTAL_SHARES`
+/// constant (10,000) and reject any share above it. Pools have chosen their own
+/// total supply since 2026-06-03 — the default is 1,000,000 — so on a current
+/// pool this returned figures 100× too large, and rejected every share above
+/// 0.1 % outright. It was dead code, which is exactly why nothing caught it;
+/// the denominator is now an explicit argument so it cannot silently drift
+/// again.
+pub fn calculate_proportional_amount(
+    total_amount: i128,
+    share: i128,
+    total_shares: i128,
+) -> Result<i128, Error> {
+    if total_shares <= 0 || share < 0 || share > total_shares {
         return Err(Error::InvalidShareTotal);
     }
 
     let result = total_amount
         .checked_mul(share)
         .ok_or(Error::Overflow)?
-        / TOTAL_SHARES;
+        / total_shares;
 
     Ok(result)
 }

@@ -64,6 +64,16 @@ pub fn execute_snapshot(env: Env, token_address: Address, merkle_root: BytesN<32
         return Err(Error::NotInitialized);
     }
     ConfigDataKey::require_admin(&env)?;
+
+    // AUDIT 2026-08 (S-1c). A zero root means "legacy live-balance round", which
+    // is exactly what `require_snapshot` exists to forbid. Passing the zero root
+    // here was a way to mint a legacy round through the snapshot entry point and
+    // walk straight past the guard. A snapshot round must carry a real root,
+    // always — a zero root through this function is never legitimate.
+    if merkle_root == zero_root(&env) {
+        return Err(Error::NotSnapshotRound);
+    }
+
     DistributionConfig::can_distribute(&env)?;
     execute_internal(env, token_address, true, merkle_root)
 }

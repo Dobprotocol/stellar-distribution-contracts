@@ -3,13 +3,25 @@
 //! Calculates how much a user can claim from a specific distribution round
 //! or across all active rounds.
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, BytesN, Env};
 
 use crate::{
     errors::Error,
     storage::{ClaimRecord, ConfigDataKey, DistributionRound},
     token::get_user_balance,
 };
+
+/// AUDIT 2026-08 (S-6). These queries feed the UI. They compute the pro-rata
+/// share from the holder's LIVE balance, which is only how a legacy zero-root
+/// round pays out. A Merkle-snapshot round pays against the balance captured
+/// in the tree, so for those rounds the live-balance figure is simply wrong —
+/// it over-states what someone who bought shares after the snapshot can claim
+/// (they can claim nothing) and under-states what a seller can claim. Report 0
+/// for snapshot rounds instead of a fabricated number; the claimable amount
+/// there comes from the off-chain proof service that owns the tree.
+fn is_snapshot_round(env: &Env, root: &BytesN<32>) -> bool {
+    *root != BytesN::from_array(env, &[0u8; 32])
+}
 
 /// Get claimable amount for a specific round
 pub fn execute(env: Env, shareholder: Address, round_id: u64) -> Result<i128, Error> {
@@ -29,6 +41,12 @@ pub fn execute(env: Env, shareholder: Address, round_id: u64) -> Result<i128, Er
     // Check round is finalized
     if !round.is_finalized {
         return Ok(0); // Not finalized yet
+    }
+
+    // Snapshot rounds are claimed with a Merkle proof against the snapshotted
+    // balance, not the live one — see the note above.
+    if is_snapshot_round(&env, &round.snapshot_root) {
+        return Ok(0);
     }
 
     // Get user's participation token balance
@@ -74,6 +92,10 @@ pub fn execute_total(env: Env, shareholder: Address) -> Result<i128, Error> {
         // Get round
         if let Some(round) = DistributionRound::get(&env, round_id) {
             if !round.is_finalized {
+                continue;
+            }
+
+            if is_snapshot_round(&env, &round.snapshot_root) {
                 continue;
             }
 

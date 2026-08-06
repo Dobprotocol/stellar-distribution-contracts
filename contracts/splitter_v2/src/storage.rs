@@ -868,6 +868,27 @@ pub enum DataKey {
     // (create_distribution / scheduled triggers / claim on zero-root rounds), forcing
     // the Merkle-snapshot path. Set on production pools to close the re-claim drain.
     RequireSnapshot,
+
+    // AUDIT 2026-08 (S-5): admin transfer is two-step. `set_admin` only PROPOSES
+    // the new admin here; the proposed address must call `accept_admin` before
+    // it takes effect, so a typo or a dead address cannot brick the pool.
+    PendingAdmin,
+}
+
+/// Proposed (not yet effective) admin — see `DataKey::PendingAdmin`.
+pub fn set_pending_admin(e: &Env, new_admin: &Address) {
+    bump_instance(e);
+    e.storage().instance().set(&DataKey::PendingAdmin, new_admin);
+}
+
+pub fn get_pending_admin(e: &Env) -> Option<Address> {
+    bump_instance(e);
+    e.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+pub fn clear_pending_admin(e: &Env) {
+    bump_instance(e);
+    e.storage().instance().remove(&DataKey::PendingAdmin);
 }
 
 /// Production guard: when set, only Merkle-snapshot distributions are allowed.

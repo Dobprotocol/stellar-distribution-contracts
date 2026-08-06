@@ -49,10 +49,23 @@ pub fn execute(env: Env, shareholder: Address, round_id: u64) -> Result<i128, Er
         return Err(Error::RoundNotFinalized);
     }
 
-    // 4b. If the pool requires snapshots, the legacy live-balance claim is disabled for
-    // zero-root rounds (drainable via transfer). Such rounds must use claim_with_proof.
+    // 4b. AUDIT 2026-08 (S-1a). Two separate rules, both needed:
+    //
+    //   * A round that HAS a Merkle root is a snapshot round and may only be
+    //     claimed through `claim_with_proof`. Previously this function ignored
+    //     `snapshot_root` entirely, so a snapshot round could be claimed here
+    //     against the LIVE balance — the very drain (claim → transfer shares →
+    //     claim again from the new address) that the snapshot design prevents.
+    //     The old guard only looked at zero-root rounds, so it never fired for
+    //     the rounds that actually mattered.
+    //
+    //   * A zero-root (legacy, live-balance) round is only claimable while the
+    //     pool does not require snapshots.
     let zero = BytesN::from_array(&env, &[0u8; 32]);
-    if get_require_snapshot(&env) && round.snapshot_root == zero {
+    if round.snapshot_root != zero {
+        return Err(Error::NotSnapshotRound);
+    }
+    if get_require_snapshot(&env) {
         return Err(Error::NotSnapshotRound);
     }
 
@@ -228,9 +241,20 @@ pub fn execute_all(env: Env, shareholder: Address) -> Result<i128, Error> {
     // Require shareholder authorization
     shareholder.require_auth();
 
+    // AUDIT 2026-08 (S-1b). This convenience path had NO snapshot guard at all,
+    // so it was the widest of the three bypasses: it happily paid out snapshot
+    // rounds against the live balance, and kept working on legacy rounds after
+    // the pool switched `require_snapshot` on. It now applies exactly the same
+    // rules as `execute`: snapshot rounds are skipped (they need a proof), and
+    // a pool that requires snapshots has no live-balance path here either.
+    if get_require_snapshot(&env) {
+        return Err(Error::NotSnapshotRound);
+    }
+
     let active_rounds = DistributionRound::get_active_rounds(&env);
     let mut total_claimed: i128 = 0;
     let current_time = env.ledger().timestamp();
+    let zero = BytesN::from_array(&env, &[0u8; 32]);
 
     for round_id in active_rounds.iter() {
         // Skip if already claimed
@@ -252,6 +276,11 @@ pub fn execute_all(env: Env, shareholder: Address) -> Result<i128, Error> {
 
             // Skip if expired (NEW)
             if current_time > round.expires_at {
+                continue;
+            }
+
+            // Snapshot rounds are only claimable with a Merkle proof.
+            if round.snapshot_root != zero {
                 continue;
             }
 

@@ -73,7 +73,28 @@ pub enum DataKey {
     Contribution(Address), // investor → shares_bought
     TotalRaised,
     SplitterAddress,
+    // AUDIT 2026-08 (C-1). Activation is now a two-step, time-locked operation:
+    // the admin PROPOSES a splitter, the proposal is public for
+    // ACTIVATION_TIMELOCK_SECONDS, and only then can the escrow move.
+    PendingSplitter,  // Address the admin proposed
+    ActivationEta,    // u64 timestamp from which `activate` is allowed
 }
+
+// ============================================================================
+// Activation timing (AUDIT 2026-08)
+// ============================================================================
+
+/// How long a proposed splitter stays visible before the escrow can move.
+/// The whole point is that the destination is announced on-chain (event
+/// `cf_prop`) with enough lead time for investors and the platform to check the
+/// target's cap table before a single token leaves the contract.
+pub const ACTIVATION_TIMELOCK_SECONDS: u64 = 7 * 24 * 60 * 60;
+
+/// Deadline for the admin to finish activating a SUCCEEDED campaign. Past this,
+/// `expire_activation` lets anyone flip the campaign to Failed so investors can
+/// refund. Comfortably larger than the timelock, so an admin acting in good
+/// faith is never squeezed: they must propose by day 83 of 90.
+pub const ACTIVATION_DEADLINE_SECONDS: u64 = 90 * 24 * 60 * 60;
 
 // ============================================================================
 // Config helpers
@@ -141,4 +162,29 @@ pub fn save_splitter_address(env: &Env, address: &Address) {
 
 pub fn get_splitter_address(env: &Env) -> Option<Address> {
     env.storage().instance().get(&DataKey::SplitterAddress)
+}
+
+// ============================================================================
+// Pending activation  (AUDIT 2026-08 / C-1)
+// ============================================================================
+
+pub fn save_pending_activation(env: &Env, splitter: &Address, eta: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingSplitter, splitter);
+    env.storage().instance().set(&DataKey::ActivationEta, &eta);
+    bump_instance(env);
+}
+
+pub fn get_pending_splitter(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingSplitter)
+}
+
+pub fn get_activation_eta(env: &Env) -> Option<u64> {
+    env.storage().instance().get(&DataKey::ActivationEta)
+}
+
+pub fn clear_pending_activation(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingSplitter);
+    env.storage().instance().remove(&DataKey::ActivationEta);
 }

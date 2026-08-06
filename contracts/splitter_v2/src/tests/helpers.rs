@@ -16,9 +16,37 @@ pub fn create_splitter(e: &Env) -> (SplitterV2Client, Address) {
     (SplitterV2Client::new(e, &contract_id), contract_id)
 }
 
-/// Create a Stellar Asset for participation tokens
-/// Returns (token_client, token_admin_client, token_address)
+/// Create the REAL participation token used in production.
+///
+/// AUDIT 2026-08. This used to register a Stellar Asset Contract, which is not
+/// what the platform deploys: every V2 pool gets an instance of our own
+/// `participation_token` contract (`admin = splitter`). The two are not
+/// interchangeable — the SAC has `clawback` while the participation token did
+/// not, which is exactly how `update_shares` shipped calling a function that
+/// does not exist on the real token without a single test noticing. Registering
+/// the real contract here is what makes the suite meaningful.
 pub fn create_participation_token<'a>(
+    e: &Env,
+    admin: &Address,
+) -> (TokenClient<'a>, TokenAdminClient<'a>, Address) {
+    let contract_id = e.register(participation_token::ParticipationToken, ());
+    let client = participation_token::ParticipationTokenClient::new(e, &contract_id);
+    client.initialize(
+        admin,
+        &0,
+        &soroban_sdk::String::from_str(e, "Pool Shares"),
+        &soroban_sdk::String::from_str(e, "SHARE"),
+    );
+    (
+        TokenClient::new(e, &contract_id),
+        TokenAdminClient::new(e, &contract_id),
+        contract_id,
+    )
+}
+
+/// Create a reward token (e.g., USDC) for distributions. Reward tokens really
+/// are classic Stellar assets, so this one stays a SAC.
+pub fn create_reward_token<'a>(
     e: &Env,
     admin: &Address,
 ) -> (TokenClient<'a>, TokenAdminClient<'a>, Address) {
@@ -29,14 +57,6 @@ pub fn create_participation_token<'a>(
         TokenAdminClient::new(e, &contract_id),
         contract_id,
     )
-}
-
-/// Create a reward token (e.g., USDC) for distributions
-pub fn create_reward_token<'a>(
-    e: &Env,
-    admin: &Address,
-) -> (TokenClient<'a>, TokenAdminClient<'a>, Address) {
-    create_participation_token(e, admin)
 }
 
 /// Create default share data (two shareholders: 80.5% and 19.5%)

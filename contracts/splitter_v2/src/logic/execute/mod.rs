@@ -25,6 +25,8 @@ pub use init::execute as init;
 pub use lock_contract::execute as lock_contract;
 pub use reclaim::execute as reclaim_expired_round;
 pub use set_admin::execute as set_admin;
+pub use set_admin::execute_accept as accept_admin;
+pub use set_admin::execute_cancel as cancel_admin_transfer;
 pub use scheduling::disable_schedule;
 pub use scheduling::set_schedule;
 pub use scheduling::trigger_scheduled_distribution;

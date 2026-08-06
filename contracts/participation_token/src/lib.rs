@@ -14,6 +14,8 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String,
 };
 
+mod test_audit_2026_08;
+
 const DAY_IN_LEDGERS: u32 = 17280;
 const INSTANCE_BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
 const INSTANCE_LIFETIME_THRESHOLD: u32 = INSTANCE_BUMP_AMOUNT - DAY_IN_LEDGERS;
@@ -49,10 +51,30 @@ pub enum DataKey {
     Metadata,
     Balance(Address),
     Allowance(AllowanceDataKey),
+    TotalSupply,
 }
 
 fn read_admin(e: &Env) -> Address {
     e.storage().instance().get(&DataKey::Admin).unwrap()
+}
+
+/// AUDIT 2026-08 (P-1). Every amount that crosses the token boundary must be
+/// non-negative. Without this, `spend_balance`'s `balance < amount` guard is
+/// vacuous for negative amounts and `balance - amount` *adds*, so
+/// `transfer(attacker, victim, -100)` credits the attacker and debits the
+/// victim with no allowance at all. Same trick makes `burn` mint.
+fn check_nonnegative_amount(amount: i128) {
+    if amount < 0 {
+        panic!("negative amount is not allowed");
+    }
+}
+
+fn read_total_supply(e: &Env) -> i128 {
+    e.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0)
+}
+
+fn write_total_supply(e: &Env, amount: i128) {
+    e.storage().instance().set(&DataKey::TotalSupply, &amount);
 }
 
 fn bump_instance(e: &Env) {
@@ -147,11 +169,36 @@ impl ParticipationToken {
 
     /// Admin-only mint (called by the splitter during init / update_shares).
     pub fn mint(e: Env, to: Address, amount: i128) {
+        check_nonnegative_amount(amount);
         let admin = read_admin(&e);
         admin.require_auth();
         bump_instance(&e);
         receive_balance(&e, &to, amount);
+        write_total_supply(&e, read_total_supply(&e) + amount);
         e.events().publish((symbol_short!("mint"), admin, to), amount);
+    }
+
+    /// Admin-only clawback (AUDIT 2026-08 / P-2). The V2 splitter's
+    /// `update_shares` needs to take shares back when a holder's share is
+    /// lowered; without this the whole re-allocation path panicked on a
+    /// non-existent function. Mirrors the Stellar Asset Contract semantics:
+    /// the token admin — which for a participation token IS the pool splitter
+    /// — may burn a holder's balance.
+    pub fn clawback(e: Env, from: Address, amount: i128) {
+        check_nonnegative_amount(amount);
+        let admin = read_admin(&e);
+        admin.require_auth();
+        bump_instance(&e);
+        spend_balance(&e, &from, amount);
+        write_total_supply(&e, read_total_supply(&e) - amount);
+        e.events().publish((symbol_short!("clawback"), admin, from), amount);
+    }
+
+    /// Live circulating supply. The V2 splitter uses it to assert that the
+    /// participation supply still matches the pool's configured total, which
+    /// is the fixed denominator of every distribution.
+    pub fn total_supply(e: Env) -> i128 {
+        read_total_supply(&e)
     }
 
     /// Transfer admin (e.g. handing token control to the splitter).
@@ -174,6 +221,7 @@ impl ParticipationToken {
     }
 
     pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        check_nonnegative_amount(amount);
         from.require_auth();
         bump_instance(&e);
         write_allowance(&e, &from, &spender, amount, expiration_ledger);
@@ -186,6 +234,7 @@ impl ParticipationToken {
     }
 
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
+        check_nonnegative_amount(amount);
         from.require_auth();
         bump_instance(&e);
         spend_balance(&e, &from, amount);
@@ -194,6 +243,7 @@ impl ParticipationToken {
     }
 
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        check_nonnegative_amount(amount);
         spender.require_auth();
         bump_instance(&e);
         spend_allowance(&e, &from, &spender, amount);
@@ -203,17 +253,21 @@ impl ParticipationToken {
     }
 
     pub fn burn(e: Env, from: Address, amount: i128) {
+        check_nonnegative_amount(amount);
         from.require_auth();
         bump_instance(&e);
         spend_balance(&e, &from, amount);
+        write_total_supply(&e, read_total_supply(&e) - amount);
         e.events().publish((symbol_short!("burn"), from), amount);
     }
 
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
+        check_nonnegative_amount(amount);
         spender.require_auth();
         bump_instance(&e);
         spend_allowance(&e, &from, &spender, amount);
         spend_balance(&e, &from, amount);
+        write_total_supply(&e, read_total_supply(&e) - amount);
         e.events().publish((symbol_short!("burn"), from), amount);
     }
 

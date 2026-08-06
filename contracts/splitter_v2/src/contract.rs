@@ -180,6 +180,13 @@ pub trait SplitterV2Trait {
     /// * `new_admin` - The new admin address
     fn set_admin(env: Env, new_admin: Address) -> Result<(), Error>;
 
+    /// Accept a pending admin transfer. Must be called by the address that
+    /// `set_admin` proposed; only then does control actually move.
+    fn accept_admin(env: Env) -> Result<(), Error>;
+
+    /// **ADMIN ONLY** Withdraw an outstanding admin-transfer proposal.
+    fn cancel_admin_transfer(env: Env) -> Result<(), Error>;
+
     /// **ADMIN ONLY** Lock the contract
     ///
     /// Permanently locks the contract from admin modifications.
@@ -422,6 +429,14 @@ impl SplitterV2Trait for SplitterV2 {
 
     fn set_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         execute::set_admin(env, new_admin)
+    }
+
+    fn accept_admin(env: Env) -> Result<(), Error> {
+        execute::accept_admin(env)
+    }
+
+    fn cancel_admin_transfer(env: Env) -> Result<(), Error> {
+        execute::cancel_admin_transfer(env)
     }
 
     fn lock_contract(env: Env) -> Result<(), Error> {

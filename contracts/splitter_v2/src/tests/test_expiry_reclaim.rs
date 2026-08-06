@@ -13,6 +13,11 @@ use crate::{
     },
 };
 
+/// Contract-enforced floor on the claim window (AUDIT 2026-08 / S-4): the admin
+/// cannot expire a round out from under shareholders in less than 30 days, so
+/// these tests can no longer use convenience-sized windows.
+const MIN_CLAIM_WINDOW: u64 = 30 * 24 * 60 * 60;
+
 #[test]
 fn test_round_expiry_blocks_late_claim() {
     let env = Env::default();
@@ -37,7 +42,7 @@ fn test_round_expiry_blocks_late_claim() {
     let config = DistributionConfig {
         min_interval_seconds: 0,
         claim_delay_seconds: 0,
-        round_expiry_seconds: 3600, // 1 hour expiry
+        round_expiry_seconds: MIN_CLAIM_WINDOW, // 30-day minimum claim window
         last_distribution_time: 0,
     };
     splitter.set_distribution_config(&config);
@@ -55,7 +60,7 @@ fn test_round_expiry_blocks_late_claim() {
 
     // Advance time past expiry
     env.ledger().with_mut(|l| {
-        l.timestamp += 3601; // 1 hour + 1 second
+        l.timestamp += MIN_CLAIM_WINDOW + 1;
     });
 
     // Claim should now fail (expired)
@@ -87,7 +92,7 @@ fn test_round_expired_query() {
     let config = DistributionConfig {
         min_interval_seconds: 0,
         claim_delay_seconds: 0,
-        round_expiry_seconds: 100, // 100 seconds expiry
+        round_expiry_seconds: MIN_CLAIM_WINDOW,
         last_distribution_time: 0,
     };
     splitter.set_distribution_config(&config);
@@ -108,7 +113,7 @@ fn test_round_expired_query() {
 
     // Advance past expiry
     env.ledger().with_mut(|l| {
-        l.timestamp += 101;
+        l.timestamp += MIN_CLAIM_WINDOW + 1;
     });
 
     // Now expired
@@ -140,7 +145,7 @@ fn test_reclaim_expired_round_success() {
     let config = DistributionConfig {
         min_interval_seconds: 0,
         claim_delay_seconds: 0,
-        round_expiry_seconds: 100,
+        round_expiry_seconds: MIN_CLAIM_WINDOW,
         last_distribution_time: 0,
     };
     splitter.set_distribution_config(&config);
@@ -162,7 +167,7 @@ fn test_reclaim_expired_round_success() {
 
     // Advance past expiry
     env.ledger().with_mut(|l| {
-        l.timestamp += 101;
+        l.timestamp += MIN_CLAIM_WINDOW + 1;
     });
 
     // Reclaim should succeed
@@ -246,7 +251,7 @@ fn test_reclaim_partial_claimed_round() {
     let config = DistributionConfig {
         min_interval_seconds: 0,
         claim_delay_seconds: 0,
-        round_expiry_seconds: 100,
+        round_expiry_seconds: MIN_CLAIM_WINDOW,
         last_distribution_time: 0,
     };
     splitter.set_distribution_config(&config);
@@ -274,7 +279,7 @@ fn test_reclaim_partial_claimed_round() {
 
     // Advance past expiry
     env.ledger().with_mut(|l| {
-        l.timestamp += 101;
+        l.timestamp += MIN_CLAIM_WINDOW + 1;
     });
 
     // Shareholder2 can no longer claim
@@ -311,7 +316,7 @@ fn test_reclaim_fails_when_fully_claimed() {
     let config = DistributionConfig {
         min_interval_seconds: 0,
         claim_delay_seconds: 0,
-        round_expiry_seconds: 100,
+        round_expiry_seconds: MIN_CLAIM_WINDOW,
         last_distribution_time: 0,
     };
     splitter.set_distribution_config(&config);
@@ -332,7 +337,7 @@ fn test_reclaim_fails_when_fully_claimed() {
 
     // Advance past expiry
     env.ledger().with_mut(|l| {
-        l.timestamp += 101;
+        l.timestamp += MIN_CLAIM_WINDOW + 1;
     });
 
     // Reclaim should fail - nothing left
@@ -365,7 +370,7 @@ fn test_claim_window_and_expiry_together() {
     let config = DistributionConfig {
         min_interval_seconds: 0,
         claim_delay_seconds: 50,
-        round_expiry_seconds: 100,
+        round_expiry_seconds: 50 + MIN_CLAIM_WINDOW,
         last_distribution_time: 0,
     };
     splitter.set_distribution_config(&config);
@@ -401,7 +406,7 @@ fn test_claim_window_and_expiry_together() {
 
     // t=100: Still claimable (at boundary)
     env.ledger().with_mut(|l| {
-        l.timestamp += 50;
+        l.timestamp += MIN_CLAIM_WINDOW;
     });
     let is_claimable = splitter.is_round_claimable(&round_id);
     assert!(is_claimable);

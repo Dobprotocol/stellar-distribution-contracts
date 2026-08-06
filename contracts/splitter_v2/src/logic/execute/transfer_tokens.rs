@@ -29,6 +29,20 @@ pub fn execute(
     // Require admin authorization
     ConfigDataKey::require_admin(&env)?;
 
+    // AUDIT 2026-08 (S-3). The participation token is NEVER an "unused" token
+    // the admin may recover. Shares sitting in this contract are there because
+    // a seller escrowed them for a marketplace listing, and the allocation
+    // ledger this function relies on only tracks REWARD tokens — for the
+    // participation token `get_total_allocation` is always 0, so the whole
+    // escrow read as free balance and the admin could transfer other people's
+    // shares out to itself. The escrow is released by `buy_shares` or
+    // `cancel_listing`, never by this function.
+    if let Some(participation_token) = ConfigDataKey::get_participation_token(&env) {
+        if token_address == participation_token {
+            return Err(Error::TransferAmountAboveUnusedBalance);
+        }
+    }
+
     // Validate amount
     if amount <= 0 {
         return Err(Error::ZeroTransferAmount);

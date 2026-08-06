@@ -3,6 +3,7 @@
 mod errors;
 mod logic;
 mod storage;
+mod tests;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, Address, BytesN, Env};
 
@@ -77,11 +78,38 @@ impl Crowdfunding {
         logic::finalize::execute(env)
     }
 
-    /// Transfer all raised funds to the splitter contract after a successful campaign.
-    /// Admin must deploy the V1 splitter externally first, then call this.
-    /// The splitter should be initialised with shares proportional to contributions.
+    /// **ADMIN ONLY — step 1 of 2.** Announce the splitter that will receive the
+    /// escrow. The address is probed (it must be a live splitter) and published
+    /// on-chain; `activate` becomes callable at the returned ETA.
+    pub fn propose_activation(env: Env, splitter_address: Address) -> Result<u64, Error> {
+        logic::activate::execute_propose(env, splitter_address)
+    }
+
+    /// **ADMIN ONLY — step 2 of 2.** Transfer all raised funds to the splitter
+    /// proposed earlier, once its timelock has elapsed. `splitter_address` must
+    /// equal the proposed one.
     pub fn activate(env: Env, splitter_address: Address) -> Result<i128, Error> {
         logic::activate::execute(env, splitter_address)
+    }
+
+    /// **INVESTOR** Leave the campaign and reclaim the full contribution while
+    /// an activation proposal is still inside its notice period. Doing so also
+    /// withdraws the proposal, so the admin must re-propose against the
+    /// corrected contributor list.
+    pub fn opt_out(env: Env, investor: Address) -> Result<i128, Error> {
+        logic::activate::execute_opt_out(env, investor)
+    }
+
+    /// **ADMIN ONLY** Withdraw a pending activation proposal.
+    pub fn cancel_activation(env: Env) -> Result<(), Error> {
+        logic::activate::execute_cancel_proposal(env)
+    }
+
+    /// Callable by anyone. Flips a SUCCEEDED-but-never-activated campaign to
+    /// Failed once the activation window has closed, opening refunds. This is
+    /// the investors' guarantee that an absent admin cannot strand their money.
+    pub fn expire_activation(env: Env) -> Result<CampaignStatus, Error> {
+        logic::activate::execute_expire(env)
     }
 
     // -------------------------------------------------------------------------
@@ -112,6 +140,18 @@ impl Crowdfunding {
 
     pub fn get_splitter(env: Env) -> Option<Address> {
         storage::get_splitter_address(&env)
+    }
+
+    /// The splitter awaiting its timelock, if any, and the timestamp from which
+    /// `activate` will accept it.
+    pub fn get_pending_activation(env: Env) -> Option<(Address, u64)> {
+        match (
+            storage::get_pending_splitter(&env),
+            storage::get_activation_eta(&env),
+        ) {
+            (Some(splitter), Some(eta)) => Some((splitter, eta)),
+            _ => None,
+        }
     }
 
     // -------------------------------------------------------------------------

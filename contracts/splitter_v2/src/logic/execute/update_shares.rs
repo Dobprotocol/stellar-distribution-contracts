@@ -12,7 +12,7 @@ use crate::{
     errors::Error,
     logic::helpers::check_shares,
     storage::{ConfigDataKey, ShareDataKey},
-    token::get_user_balance,
+    token::{get_participation_extended_client, get_user_balance},
 };
 
 /// Updates shareholder allocations by minting/burning participation tokens.
@@ -54,6 +54,11 @@ pub fn execute(env: Env, shares: Vec<ShareDataKey>) -> Result<(), Error> {
         .ok_or(Error::NotInitialized)?;
 
     let token_admin = StellarAssetClient::new(&env, &participation_token);
+    // AUDIT 2026-08 (S-2). `clawback` lives on our participation token, not on
+    // the Stellar Asset Contract interface — the old code called it through
+    // `StellarAssetClient`, so every downward adjustment panicked and this
+    // function could only ever ADD shares on a real pool.
+    let participation = get_participation_extended_client(&env)?;
 
     // Process each shareholder in the new allocation
     for share in shares.iter() {
@@ -65,11 +70,24 @@ pub fn execute(env: Env, shares: Vec<ShareDataKey>) -> Result<(), Error> {
             let mint_amount = target_balance - current_balance;
             token_admin.mint(&share.shareholder, &mint_amount);
         } else if target_balance < current_balance {
-            // Burn excess tokens (clawback)
+            // Claw back excess tokens
             let burn_amount = current_balance - target_balance;
-            token_admin.clawback(&share.shareholder, &burn_amount);
+            participation.clawback(&share.shareholder, &burn_amount);
         }
         // If equal, no action needed
+    }
+
+    // AUDIT 2026-08 (S-2). The loop above only visits the shareholders that the
+    // caller listed. Any holder left OUT of the list keeps every token it has,
+    // so the live supply ends up above `config.total_shares` — and
+    // `total_shares` is the fixed denominator of every distribution round.
+    // Over-issued supply means the sum of all claims exceeds the distributed
+    // amount and the last claimants get nothing. Checking the sum of the input
+    // is not enough; only the token knows the real supply, so we assert against
+    // it and revert the whole call if the re-allocation did not balance.
+    let live_supply = participation.total_supply();
+    if live_supply != config.total_shares {
+        return Err(Error::InvalidShareTotal);
     }
 
     // Note: We don't track shareholders in storage in V2 since the token

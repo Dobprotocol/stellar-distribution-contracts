@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 mod helpers;
+mod test_audit_2026_08;
 mod test_claim;
 mod test_claim_window;
 mod test_distribution;

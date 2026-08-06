@@ -27,4 +27,12 @@ pub enum Error {
     InvalidDeadline = 15,
     // Arithmetic
     Overflow = 16,
+    // Activation (AUDIT 2026-08 / C-1, C-2)
+    NoPendingActivation = 17,
+    ActivationTimelockPending = 18,
+    SplitterMismatch = 19,
+    InvalidSplitter = 20,
+    ActivationWindowExpired = 21,
+    ActivationWindowStillOpen = 22,
+    NoticePeriodOver = 23,
 }
