@@ -103,6 +103,15 @@ pub trait SplitterTrait {
 
     /// **ADMIN ONLY FUNCTION**
     ///
+    /// Transfers admin rights to a new address.
+    ///
+    /// ## Arguments
+    ///
+    /// * `new_admin` - The new admin address
+    fn set_admin(env: Env, new_admin: Address) -> Result<(), Error>;
+
+    /// **ADMIN ONLY FUNCTION**
+    ///
     /// Locks the contract for further shares updates.
     ///
     /// Locking the contract does not affect the distribution of tokens.
@@ -356,6 +365,10 @@ impl SplitterTrait for Splitter {
 
     fn update_shares(env: Env, shares: Vec<ShareDataKey>) -> Result<(), Error> {
         execute::update_shares(env, shares)
+    }
+
+    fn set_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        execute::set_admin(env, new_admin)
     }
 
     fn lock_contract(env: Env) -> Result<(), Error> {
