@@ -183,6 +183,9 @@ pub fn execute(env: Env, splitter_address: Address) -> Result<i128, Error> {
 /// to re-propose against the corrected list and serve a fresh notice. Each
 /// investor can force that at most once — their position goes to zero — so the
 /// reset is bounded by the number of contributors.
+///
+/// AUDIT 2026-08 (S-3) — and if the exits take the raise back under the soft
+/// cap, the campaign fails. See the block at the end of this function.
 pub fn execute_opt_out(env: Env, investor: Address) -> Result<i128, Error> {
     if !CrowdfundConfig::exists(&env) {
         return Err(Error::NotInitialized);
@@ -220,6 +223,31 @@ pub fn execute_opt_out(env: Env, investor: Address) -> Result<i128, Error> {
         .total_shares_sold
         .checked_sub(shares)
         .ok_or(Error::Overflow)?;
+
+    // AUDIT 2026-08 (S-3). The soft cap is a promise made to the investors who
+    // stay: "this only goes ahead if at least N shares are sold". Nothing
+    // re-checked it after an exit, so a campaign that dropped under its own
+    // minimum stayed `Succeeded` and the admin could activate — funding the
+    // project with less money than the campaign said it needed, and handing the
+    // remaining investors a cap table they never agreed to.
+    //
+    // The rule already exists in `finalize`; this just re-applies it. Under the
+    // cap the campaign is `Failed`, which closes `activate` and opens the
+    // ordinary `refund` path for everyone left, immediately — no waiting out the
+    // 90-day activation window.
+    //
+    // The cost, stated plainly: a contributor large enough to break the cap can
+    // kill the campaign while a proposal stands. That exposure is entirely in
+    // the admin's hands — the timelock is zero, so an admin who proposes and
+    // activates in the same breath offers no window at all, and any window
+    // longer than that is a policy they chose. The alternative — refusing the
+    // exit — would trap precisely the biggest investor, who is the one C-1 was
+    // written to protect.
+    let soft_cap_broken = config.total_shares_sold < config.soft_cap_shares;
+    if soft_cap_broken {
+        config.status = CampaignStatus::Failed;
+    }
+
     CrowdfundConfig::save(&env, &config);
     let total_raised = crate::storage::get_total_raised(&env)
         .checked_sub(refund_amount)
@@ -235,6 +263,21 @@ pub fn execute_opt_out(env: Env, investor: Address) -> Result<i128, Error> {
         (symbol_short!("cf_optout"), investor),
         (shares, refund_amount),
     );
+
+    // The re-failure is announced with the same event `finalize` uses, so every
+    // indexer that already understands "campaign settled" picks the new status
+    // up with no change; a bespoke event would have gone unread.
+    if soft_cap_broken {
+        // event: (cf_done, contract) → (status_code, total_shares_sold, total_raised)
+        env.events().publish(
+            (symbol_short!("cf_done"), env.current_contract_address()),
+            (
+                CampaignStatus::Failed as u32,
+                config.total_shares_sold,
+                total_raised,
+            ),
+        );
+    }
 
     Ok(refund_amount)
 }

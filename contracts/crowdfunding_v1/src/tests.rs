@@ -14,6 +14,10 @@
 //!   C-2  A campaign that reached its soft cap but was never activated held the
 //!        money for ever. `expire_activation` now opens refunds once the
 //!        activation window closes.
+//!   S-3  `opt_out` shrank the raise without re-checking the soft cap, so a
+//!        campaign could be activated for less than the minimum it promised.
+//!        Dropping under the cap now settles the campaign as Failed and opens
+//!        refunds immediately.
 
 #![cfg(test)]
 extern crate std;
@@ -115,12 +119,26 @@ fn setup_with_mode<'a>(payout_mode: u32) -> Ctx<'a> {
 }
 
 /// Raise past the soft cap and finalize → Succeeded.
+///
+/// 1_200 of a 1_000 soft cap: A alone leaving takes the campaign under it, which
+/// since S-3 fails the campaign. Tests about the *exit* rather than about the
+/// cap use `succeed_with_slack` instead.
 fn succeed(ctx: &Ctx) -> i128 {
     ctx.cf.contribute(&ctx.investor_a, &700);
     ctx.cf.contribute(&ctx.investor_b, &500);
     ctx.env.ledger().set_timestamp(DEADLINE + 1);
     assert_eq!(ctx.cf.finalize(), CampaignStatus::Succeeded);
     1_200 * PRICE
+}
+
+/// Same, but raised far enough above the soft cap that investor A can walk away
+/// without taking the campaign under its minimum (S-3).
+fn succeed_with_slack(ctx: &Ctx) -> i128 {
+    ctx.cf.contribute(&ctx.investor_a, &700);
+    ctx.cf.contribute(&ctx.investor_b, &1_500);
+    ctx.env.ledger().set_timestamp(DEADLINE + 1);
+    assert_eq!(ctx.cf.finalize(), CampaignStatus::Succeeded);
+    2_200 * PRICE
 }
 
 // ============================================================================
@@ -480,7 +498,7 @@ fn negative_and_zero_contributions_are_rejected() {
 #[test]
 fn an_investor_can_leave_while_the_activation_notice_is_running() {
     let ctx = setup();
-    let raised = succeed(&ctx);
+    let raised = succeed_with_slack(&ctx);
     let splitter = ctx.env.register(MockSplitter, ());
     ctx.cf.propose_activation(&splitter);
 
@@ -498,7 +516,9 @@ fn an_investor_can_leave_while_the_activation_notice_is_running() {
         ctx.payment.balance(&ctx.cf_address),
         ctx.cf.get_total_raised()
     );
-    assert_eq!(ctx.cf.get_config().total_shares_sold, 500);
+    assert_eq!(ctx.cf.get_config().total_shares_sold, 1_500);
+    // Still above the soft cap, so the campaign survives the exit.
+    assert_eq!(ctx.cf.get_status(), CampaignStatus::Succeeded);
 
     // Leaving cannot be repeated.
     assert_eq!(
@@ -510,7 +530,7 @@ fn an_investor_can_leave_while_the_activation_notice_is_running() {
 #[test]
 fn leaving_withdraws_the_proposal_so_the_admin_must_re_announce() {
     let ctx = setup();
-    succeed(&ctx);
+    succeed_with_slack(&ctx);
     let splitter = ctx.env.register(MockSplitter, ());
     let eta = ctx.cf.propose_activation(&splitter);
 
@@ -530,8 +550,8 @@ fn leaving_withdraws_the_proposal_so_the_admin_must_re_announce() {
     assert_eq!(eta2, eta + ACTIVATION_TIMELOCK_SECONDS);
 
     // And what finally moves is only the money of the investors who stayed.
-    assert_eq!(ctx.cf.activate(&splitter), 500 * PRICE);
-    assert_eq!(ctx.payment.balance(&splitter), 500 * PRICE);
+    assert_eq!(ctx.cf.activate(&splitter), 1_500 * PRICE);
+    assert_eq!(ctx.payment.balance(&splitter), 1_500 * PRICE);
     assert_eq!(ctx.payment.balance(&ctx.cf_address), 0);
 }
 
@@ -584,28 +604,120 @@ fn a_non_contributor_cannot_drain_the_notice_period() {
 #[test]
 fn everyone_leaving_empties_the_campaign_without_breaking_it() {
     let ctx = setup();
-    succeed(&ctx);
+    succeed_with_slack(&ctx);
     let splitter = ctx.env.register(MockSplitter, ());
 
+    // A leaves with room to spare, so the campaign lives and the admin
+    // re-announces against the corrected list.
     ctx.cf.propose_activation(&splitter);
     ctx.cf.opt_out(&ctx.investor_a);
+    assert_eq!(ctx.cf.get_status(), CampaignStatus::Succeeded);
+
+    // B leaves too, which empties the campaign — and empty is below any soft
+    // cap, so it settles as Failed (S-3) instead of staying activatable for
+    // nothing.
     ctx.cf.propose_activation(&splitter);
     ctx.cf.opt_out(&ctx.investor_b);
 
     assert_eq!(ctx.cf.get_total_raised(), 0);
     assert_eq!(ctx.payment.balance(&ctx.cf_address), 0);
     assert_eq!(ctx.cf.get_config().total_shares_sold, 0);
+    assert_eq!(ctx.cf.get_status(), CampaignStatus::Failed);
+    assert_eq!(ctx.cf.get_pending_activation(), None);
 
-    // The campaign is still coherent: it can be activated for nothing, or left
-    // to expire into refunds that have nothing to pay out.
-    ctx.env
-        .ledger()
-        .set_timestamp(DEADLINE + ACTIVATION_DEADLINE_SECONDS);
-    assert_eq!(ctx.cf.expire_activation(), CampaignStatus::Failed);
+    // Both were already paid on the way out, so the refund path has nothing
+    // left to hand over.
     assert_eq!(
         ctx.cf.try_refund(&ctx.investor_a),
         Err(Ok(Error::NothingToRefund))
     );
+    assert_eq!(
+        ctx.cf.try_refund(&ctx.investor_b),
+        Err(Ok(Error::NothingToRefund))
+    );
+}
+
+// ============================================================================
+// S-3 — an exit that breaks the soft cap breaks the campaign
+//
+// `opt_out` shrank the raise without ever re-checking the minimum the campaign
+// had promised. A campaign could therefore be activated for less money than it
+// said it needed, with the investors who stayed holding a cap table they never
+// agreed to and no way out.
+// ============================================================================
+
+#[test]
+fn leaving_under_the_soft_cap_fails_the_campaign_instead_of_activating_short() {
+    let ctx = setup();
+    succeed(&ctx); // 1_200 sold against a 1_000 soft cap
+    let splitter = ctx.env.register(MockSplitter, ());
+    ctx.cf.propose_activation(&splitter);
+
+    // A's 700 leaving drops the raise to 500 — half the minimum the campaign
+    // promised its investors.
+    ctx.cf.opt_out(&ctx.investor_a);
+
+    assert_eq!(ctx.cf.get_config().total_shares_sold, 500);
+    assert_eq!(
+        ctx.cf.get_status(),
+        CampaignStatus::Failed,
+        "a raise under its own soft cap cannot stay Succeeded"
+    );
+
+    // The admin cannot announce or activate a campaign that no longer qualifies.
+    assert_eq!(
+        ctx.cf.try_propose_activation(&splitter),
+        Err(Ok(Error::CampaignNotSucceeded))
+    );
+    assert_eq!(
+        ctx.cf.try_activate(&splitter),
+        Err(Ok(Error::CampaignNotSucceeded))
+    );
+    assert_eq!(ctx.payment.balance(&splitter), 0);
+
+    // And B — who never asked for any of this — is refunded straight away,
+    // without waiting out the 90-day activation window.
+    let b_before = ctx.payment.balance(&ctx.investor_b);
+    assert_eq!(ctx.cf.refund(&ctx.investor_b), 500 * PRICE);
+    assert_eq!(ctx.payment.balance(&ctx.investor_b), b_before + 500 * PRICE);
+    assert_eq!(ctx.payment.balance(&ctx.cf_address), 0);
+}
+
+#[test]
+fn the_soft_cap_break_is_announced_as_a_settlement() {
+    let ctx = setup();
+    succeed(&ctx);
+    let splitter = ctx.env.register(MockSplitter, ());
+    ctx.cf.propose_activation(&splitter);
+    ctx.cf.opt_out(&ctx.investor_a);
+
+    // Indexers learn the campaign settled from `cf_done`; re-using it here means
+    // the off-chain view flips to Failed with no new event to teach it. Read the
+    // buffer now — the next invocation replaces it.
+    let emitted = ctx.env.events().all();
+    let (_, topics, _) = emitted.last().unwrap();
+    let topic: Symbol = topics.first().unwrap().into_val(&ctx.env);
+    assert_eq!(topic, symbol_short!("cf_done"));
+}
+
+#[test]
+fn an_exit_that_lands_exactly_on_the_soft_cap_keeps_the_campaign_alive() {
+    let ctx = setup();
+    // 1_200 sold, soft cap 1_000: B's 200 can leave and the campaign is still
+    // exactly at its minimum. The comparison is `<`, not `<=`.
+    ctx.cf.contribute(&ctx.investor_a, &1_000);
+    ctx.cf.contribute(&ctx.investor_b, &200);
+    ctx.env.ledger().set_timestamp(DEADLINE + 1);
+    assert_eq!(ctx.cf.finalize(), CampaignStatus::Succeeded);
+
+    let splitter = ctx.env.register(MockSplitter, ());
+    ctx.cf.propose_activation(&splitter);
+    ctx.cf.opt_out(&ctx.investor_b);
+
+    assert_eq!(ctx.cf.get_config().total_shares_sold, SOFT_CAP);
+    assert_eq!(ctx.cf.get_status(), CampaignStatus::Succeeded);
+    ctx.cf.propose_activation(&splitter);
+    assert_eq!(ctx.cf.activate(&splitter), SOFT_CAP * PRICE);
 }
 
 // ============================================================================
@@ -677,7 +789,7 @@ fn an_investor_can_still_walk_away_in_resell_mode() {
     // admin receiving it is the point. `opt_out` is what remains, so it has to
     // work here too, or the resell mode would have no investor-side guarantee.
     let ctx = setup_with_mode(1);
-    succeed(&ctx);
+    succeed_with_slack(&ctx);
 
     let splitter = ctx.env.register(MockSplitter, ());
     ctx.cf.propose_activation(&splitter);

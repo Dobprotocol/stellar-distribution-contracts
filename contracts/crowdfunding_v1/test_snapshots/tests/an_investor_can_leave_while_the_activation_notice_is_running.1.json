@@ -162,7 +162,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
                 {
-                  "i128": "500"
+                  "i128": "1500"
                 }
               ]
             }
@@ -181,7 +181,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     },
                     {
-                      "i128": "50000"
+                      "i128": "150000"
                     }
                   ]
                 }
@@ -233,6 +233,7 @@
         }
       ]
     ],
+    [],
     [],
     [],
     [],
@@ -525,7 +526,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "i128": "500"
+                  "i128": "1500"
                 }
               }
             },
@@ -636,7 +637,7 @@
                                 "symbol": "total_shares_sold"
                               },
                               "val": {
-                                "i128": "500"
+                                "i128": "1500"
                               }
                             }
                           ]
@@ -651,7 +652,7 @@
                           ]
                         },
                         "val": {
-                          "i128": "50000"
+                          "i128": "150000"
                         }
                       }
                     ]
@@ -837,7 +838,7 @@
                         "symbol": "amount"
                       },
                       "val": {
-                        "i128": "50000"
+                        "i128": "150000"
                       }
                     },
                     {
@@ -977,7 +978,7 @@
                         "symbol": "amount"
                       },
                       "val": {
-                        "i128": "950000"
+                        "i128": "850000"
                       }
                     },
                     {
